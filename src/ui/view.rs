@@ -227,7 +227,6 @@ fn card(s: &App, g: &Game) -> El {
         .on_double_press(move |s: &mut App| s.play(&root))
         .child(art.mb(8.0))
         .child(text(name).key("name").font(BODY).color(TEXT).truncate().w_full())
-        .child(text(g.flavor.as_str()).key("flavor").font(CAPTION).color(MUTED).truncate().w_full())
 }
 
 fn running_badge() -> El {
@@ -295,7 +294,7 @@ fn panel(s: &App, k: &Kit, g: &Game, width: f32, layer: &mut Vec<El>) -> El {
     let running = s.running.contains(&g.root);
     let inner = width - 40.0;
 
-    let mut meta = vec![g.flavor.as_str().to_owned()];
+    let mut meta = Vec::new();
     if has_art(g.real_id) {
         meta.push(format!("Steam app {}", g.real_id));
     }

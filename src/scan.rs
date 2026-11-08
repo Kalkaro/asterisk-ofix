@@ -43,24 +43,6 @@ const EXE_BLOCKLIST: &[&str] = &[
     "notification_helper",
 ];
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Flavor {
-    OnlineFix,
-    #[default]
-    SteamFix,
-    Manual,
-}
-
-impl Flavor {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Flavor::OnlineFix => "OnlineFix",
-            Flavor::SteamFix => "SteamFix",
-            Flavor::Manual => "Manual",
-        }
-    }
-}
-
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Game {
     pub name: String,
@@ -71,7 +53,6 @@ pub struct Game {
     pub exes: Vec<PathBuf>,
     pub real_id: u32,
     pub fake_id: u32,
-    pub flavor: Flavor,
 }
 
 pub fn scan_libraries(libs: &[PathBuf]) -> Vec<Game> {
@@ -95,11 +76,6 @@ pub fn scan_libraries(libs: &[PathBuf]) -> Vec<Game> {
 /// Looks for OnlineFix files in `root` or a few levels below it.
 pub fn detect_game(root: &Path) -> Option<Game> {
     let fix_dir = find_fix_dir(root, 3)?;
-    let flavor = if ["onlinefix64.dll", "onlinefix.dll", "onlinefix.ini"].iter().any(|f| has_file(&fix_dir, f)) {
-        Flavor::OnlineFix
-    } else {
-        Flavor::SteamFix
-    };
     let mut exes = exe_candidates(&fix_dir);
     if exes.is_empty() && fix_dir != root {
         exes = exe_candidates(root);
@@ -107,7 +83,7 @@ pub fn detect_game(root: &Path) -> Option<Game> {
     let folder = file_name(root);
     rank_exes(&mut exes, &folder);
     let (real_id, fake_id) = read_fix_ini(&fix_dir);
-    Some(Game { name: pretty_name(&folder), root: root.to_path_buf(), fix_dir, exes, real_id, fake_id, flavor })
+    Some(Game { name: pretty_name(&folder), root: root.to_path_buf(), fix_dir, exes, real_id, fake_id })
 }
 
 /// An entry for a hand-picked executable.
@@ -116,7 +92,6 @@ pub fn game_from_exe(exe: &Path) -> Game {
     let mut g = detect_game(dir).unwrap_or_else(|| Game {
         root: dir.to_path_buf(),
         fix_dir: dir.to_path_buf(),
-        flavor: Flavor::Manual,
         ..Game::default()
     });
     let mut exes = vec![exe.to_path_buf()];
@@ -219,10 +194,6 @@ pub fn pretty_name(folder: &str) -> String {
     folder.replace(['.', '_'], " ").split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn has_file(dir: &Path, lower_name: &str) -> bool {
-    read_dir_sorted(dir).iter().any(|p| file_name(p).eq_ignore_ascii_case(lower_name))
-}
-
 pub fn read_dir_sorted(dir: &Path) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> =
         std::fs::read_dir(dir).map(|rd| rd.filter_map(|e| e.ok().map(|e| e.path())).collect()).unwrap_or_default();
@@ -258,7 +229,7 @@ mod tests {
         let games = scan_libraries(&[lib.path().to_path_buf()]);
         assert_eq!(games.len(), 1);
         let g = &games[0];
-        assert_eq!((g.name.as_str(), g.flavor, g.real_id, g.fake_id), ("Cool Game", Flavor::SteamFix, 1000002, 480));
+        assert_eq!((g.name.as_str(), g.real_id, g.fake_id), ("Cool Game", 1000002, 480));
         assert_eq!(g.exes, vec![game.join("Cool Game.exe")]);
         assert_eq!(dll_overrides(&game), "SteamFix64=n;steam_api64=n;winmm=n,b");
         assert_eq!(dll_overrides(tempdir().path()), FALLBACK_OVERRIDES);
@@ -272,7 +243,6 @@ mod tests {
         write(&root.join("Bin/Win64/OnlineFix64.dll"), "x");
         let g = detect_game(&root).unwrap();
         assert_eq!(g.fix_dir, root.join("Bin/Win64"));
-        assert_eq!(g.flavor, Flavor::OnlineFix);
         assert_eq!(g.exes, vec![root.join("Bin/Win64/Deep.exe")]);
         assert!(detect_game(tempdir().path()).is_none());
     }
