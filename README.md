@@ -9,21 +9,25 @@ Steam overlay (Shift+Tab) and online play work, but nothing gets added to your S
 
 ## Installing
 
-On Arch, Fedora, Ubuntu, Debian and most other x86_64 distros (glibc 2.35 or newer), this
-downloads the latest AppImage to `~/.local/bin` and adds it to your app menu:
+Arch, Fedora, Ubuntu and most other x86_64 distros (glibc 2.35 or newer), run:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Kalkaro/asterisk-ofix/main/install.sh | bash
 ```
 
-Run it again to update. To remove it (your saves stay):
+NixOS, run:
+
+```sh
+nix run github:Kalkaro/asterisk-ofix
+```
+
+Run the install again to update. To remove it (your saves stay):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Kalkaro/asterisk-ofix/main/install.sh | bash -s -- --uninstall
 ```
 
-It needs a native Steam install; Flatpak and Snap Steam aren't supported. On NixOS, use
-`nix run github:Kalkaro/asterisk-ofix`.
+It needs a native Steam install; Flatpak and Snap Steam aren't supported.
 
 ## Using it
 
