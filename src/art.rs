@@ -109,7 +109,14 @@ impl Inner {
         if missing.is_empty() {
             return;
         }
-        let Ok(assets) = self.store_assets(&missing) else { return };
+        let Ok(assets) = self.store_assets(&missing) else {
+            // Most likely offline: the next scan asks again.
+            let mut requested = lock(&self.requested);
+            for id in &missing {
+                requested.remove(id);
+            }
+            return;
+        };
         for id in missing {
             let mut art = lock(&self.art).get(&id).cloned().unwrap_or_default();
             let urls = assets.get(&id).cloned().unwrap_or_default();
@@ -386,6 +393,18 @@ mod tests {
         store.load(&[0, 480], |_| panic!("callback for a placeholder ID"));
         std::thread::sleep(Duration::from_millis(50));
         assert_eq!(steam.hits.load(Ordering::SeqCst), 0, "0 and Spacewar (480) have no art of their own");
+    }
+
+    /// A store request that failed (offline at startup) marked its apps as done for good, so a
+    /// rescan never fetched their art.
+    #[test]
+    fn a_failed_store_request_is_retried() {
+        let home = tempdir();
+        let offline =
+            Endpoints { store_api: "http://127.0.0.1:9/api".into(), asset_base: "http://127.0.0.1:9/assets/".into() };
+        let store = ArtStore::new(&Paths::under(home.path()), None, offline);
+        store.load(&[1000001], |_| {}).expect("a fetch").join().unwrap();
+        assert!(store.load(&[1000001], |_| {}).is_some(), "asked again after the store was unreachable");
     }
 
     #[test]
