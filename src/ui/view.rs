@@ -29,9 +29,25 @@ const SEARCH_W: f32 = 520.0;
 /// Things that come and go (cards a search hides, the toast) fade over about a third of a
 /// second. Rune's default presence fade is over in ~0.1 s, which reads as popping.
 const FADE: SpringPair = SpringPair::new(Spring::new(0.35, 0.0), Spring::new(0.35, 0.0));
-/// How far below its own spot the asterisk's centre goes to sit on the middle of the
-/// capitals, in ems of Google Sans Flex SemiBold: (its ink's centre - cap height / 2) / em.
-const ASTERISK_DROP: f32 = 0.1995;
+/// Google Sans Flex SemiBold's vertical metrics, in ems: ascender and descender, cap
+/// height, and the middle of the asterisk's ink above the baseline.
+const ASCENT: f32 = 0.966;
+const DESCENT: f32 = 0.286;
+const CAP_HEIGHT: f32 = 0.716;
+const ASTERISK_MID: f32 = 0.5575;
+
+/// How far below the middle of its line a point `height` ems above the baseline sits, for
+/// text of `size` vertically centred in a row (the same at any line height).
+fn below_line_middle(size: f32, height: f32) -> f32 {
+    size * ((ASCENT - DESCENT) / 2.0 - height)
+}
+
+/// How far to lower an asterisk of `mark` size beside a title of `title` size so the
+/// asterisk's centre sits on the middle of the title's capitals. The glyph normally rides
+/// up near the cap height.
+pub fn asterisk_drop(mark: f32, title: f32) -> f32 {
+    below_line_middle(title, CAP_HEIGHT / 2.0) - below_line_middle(mark, ASTERISK_MID)
+}
 const SEARCH_H: f32 = 52.0;
 const SEARCH_BOTTOM: f32 = 28.0;
 
@@ -111,10 +127,11 @@ fn header(s: &App, k: &Kit) -> El {
             // middle of the capitals beside it.
             text("*")
                 .key("logo")
-                .font(PAGE_TITLE)
+                .font(LOGO)
                 .color(TEXT)
-                .offset(0.0, (ASTERISK_DROP * PAGE_TITLE.size).round())
-                .mr(-4.0),
+                .offset(0.0, asterisk_drop(LOGO.size, PAGE_TITLE.size).round())
+                // The glyph's side bearings already space it; the row's gap would double that.
+                .mr(-7.0),
         )
         .child(text("Library").key("library-title").font(PAGE_TITLE).color(TEXT))
         .child(text(count).key("count").font(CAPTION_STRONG).color(MUTED).px(8.0).py(2.0).radius(10.0).fill(RAISED))

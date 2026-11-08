@@ -744,5 +744,16 @@ fn asterisk_mark_beside_the_title() {
     let [tx, ty, _, th] = ui.rect("library-title");
     assert!(lx + lw <= tx + 1.0 && tx - (lx + lw) < 8.0, "the asterisk is right before the title");
     assert_eq!(lh, th, "set on the title's line");
-    assert_eq!(ly - ty, 4.0, "lowered 0.2 em (rounded to whole points) onto the capitals' middle");
+    assert_eq!(ly - ty, 8.0, "lowered onto the capitals' middle, in whole points");
+}
+
+/// The drop comes from the font's metrics. At the title's own size it's the 0.1995 em
+/// measured from the glyph outlines: (asterisk ink centre - cap height / 2) / em.
+#[test]
+fn asterisk_drop_from_font_metrics() {
+    use super::view::asterisk_drop;
+    assert!((asterisk_drop(22.0, 22.0) - 0.1995 * 22.0).abs() < 0.01, "{}", asterisk_drop(22.0, 22.0));
+    // Bigger marks drop further: their centre rides higher above the shared line middle.
+    assert!(asterisk_drop(40.0, 22.0) > asterisk_drop(22.0, 22.0));
+    assert_eq!(asterisk_drop(40.0, 22.0).round(), 8.0);
 }

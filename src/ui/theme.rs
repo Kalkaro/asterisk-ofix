@@ -34,6 +34,9 @@ pub const CAPTION: TextStyle = TextStyle::new(12.0, 400.0).lh(16.0);
 pub const CAPTION_STRONG: TextStyle = TextStyle::new(12.0, 600.0).lh(16.0);
 pub const SUBHEADING: TextStyle = TextStyle::new(15.0, 600.0).lh(20.0);
 pub const SEARCH: TextStyle = TextStyle::new(16.0, 400.0).lh(22.0);
+/// The asterisk mark before the page title: sized so its ink is as tall as the title's
+/// capitals, on the title's line height so the header keeps its height.
+pub const LOGO: TextStyle = TextStyle::new(40.0, 600.0).lh(28.0);
 pub const PAGE_TITLE: TextStyle = TextStyle::new(22.0, 600.0).lh(28.0);
 pub const MONOGRAM: TextStyle = TextStyle::new(34.0, 600.0).lh(40.0);
 
