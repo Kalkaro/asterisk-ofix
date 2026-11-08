@@ -103,6 +103,32 @@ fn command_sets_the_game_env_only_inside_the_sandbox() {
     );
 }
 
+/// Run from an AppImage, the launcher's environment says where its mount is and points
+/// library paths into it. Games are Steam's business, not ours, so none of that reaches them.
+#[test]
+fn appimage_env_stays_out_of_the_game() {
+    let host = env(&[
+        ("APPIMAGE", "/home/u/Apps/asterisk-ofix.AppImage"),
+        ("APPDIR", "/tmp/.mount_asterXYZ"),
+        ("ARGV0", "asterisk-ofix"),
+        ("OWD", "/home/u"),
+        ("APPIMAGE_EXTRACT_AND_RUN", "1"),
+        ("LD_LIBRARY_PATH", "/tmp/.mount_asterXYZ/usr/lib:/opt/cuda/lib64"),
+        ("DISPLAY", ":0"),
+    ]);
+    let e = game_env(&no_sandbox().command_from(&spec(), host).unwrap());
+    for k in ["APPIMAGE", "APPDIR", "ARGV0", "OWD", "APPIMAGE_EXTRACT_AND_RUN"] {
+        assert!(!e.contains_key(k), "{k} leaked into the game env");
+    }
+    assert_eq!(e["LD_LIBRARY_PATH"], "/opt/cuda/lib64", "only the AppImage's own library paths go");
+    assert_eq!(e["DISPLAY"], ":0");
+
+    // Outside an AppImage a path that merely looks like a mount is left alone.
+    let host = env(&[("LD_LIBRARY_PATH", "/tmp/.mount_asterXYZ/usr/lib")]);
+    let e = game_env(&no_sandbox().command_from(&spec(), host).unwrap());
+    assert_eq!(e["LD_LIBRARY_PATH"], "/tmp/.mount_asterXYZ/usr/lib");
+}
+
 /// Joining Steam's sandbox, the game must get Steam's environment (its DISPLAY and
 /// XAUTHORITY work in there). With the launcher's own display games died with "No displays
 /// available".

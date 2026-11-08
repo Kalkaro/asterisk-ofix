@@ -106,6 +106,7 @@ impl Steam {
         ]
         .into();
 
+        let base = without_appimage(base);
         let mut game_env: Vec<String> = base
             .iter()
             // TMPDIR may point outside the sandbox's private /tmp (even Steam's inherited
@@ -307,6 +308,22 @@ pub fn is_secret_env(name: &str, value: &str) -> bool {
     }
     name.to_uppercase().split(['_', '-']).any(|part| SECRET_WORDS.contains(&part))
         || SECRET_PREFIXES.iter().any(|p| value.starts_with(p))
+}
+
+/// `env` without what the AppImage runtime adds when we run from one: its own variables, and
+/// library paths inside its mount, which would shadow the libraries Proton and games expect.
+fn without_appimage(env: Env) -> Env {
+    let Some(appdir) = env.iter().find(|(k, _)| k == "APPDIR").map(|(_, v)| v.clone()) else { return env };
+    env.into_iter()
+        .filter(|(k, _)| !matches!(k.as_str(), "APPDIR" | "APPIMAGE" | "ARGV0" | "OWD") && !k.starts_with("APPIMAGE_"))
+        .filter_map(|(k, v)| {
+            if k != "LD_LIBRARY_PATH" {
+                return Some((k, v));
+            }
+            let kept: Vec<&str> = v.split(':').filter(|p| !p.is_empty() && !Path::new(p).starts_with(&appdir)).collect();
+            (!kept.is_empty()).then(|| (k, kept.join(":")))
+        })
+        .collect()
 }
 
 fn proc_environ(pid: i32) -> Env {
