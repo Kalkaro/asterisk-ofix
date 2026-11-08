@@ -645,6 +645,27 @@ fn a_hand_picked_exe_opens_its_panel() {
     assert_eq!(Config::load(&ui.paths()).manual_exes, [exe]);
 }
 
+/// Picking an exe from a game already in the library used to do nothing visible when the exe
+/// sat in the game's folder, and made a second card (with its own settings and prefix) when
+/// it sat in a subfolder. It becomes that game's executable instead.
+#[test]
+fn a_hand_picked_exe_from_a_known_game_becomes_its_executable() {
+    for exe in ["Editor.exe", "Bin/Win64/Pong-Shipping.exe"] {
+        let mut ui = Ui::new(&[("Pong", 0)]);
+        let root = ui.game("Pong");
+        let exe = root.join(exe);
+        crate::testutil::write(&exe, "x");
+        let picked = exe.clone();
+        ui.rt.update(move |s, _| s.add_manual_exe(picked));
+        ui.settle();
+        assert_eq!(ui.card_names(), ["Pong"], "{}: no second card", exe.display());
+        assert_eq!(ui.rt.state.selected.as_deref(), Some(root.as_path()), "its panel opens");
+        let g = ui.rt.state.current().unwrap().clone();
+        assert_eq!(ui.rt.state.spec_for(&g).unwrap().exe, exe, "and it starts the picked exe");
+        assert!(Config::load(&ui.paths()).manual_exes.is_empty(), "it isn't a game of its own");
+    }
+}
+
 #[test]
 fn a_broken_config_says_so() {
     let home = tempdir();

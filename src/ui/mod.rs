@@ -386,11 +386,21 @@ impl App {
 
     /// `exe` as listed in the dropdown: relative to the game's folder when inside it.
     pub fn choose_exe(&mut self, exe: &str) {
-        self.edit(|s, g| {
-            let path = g.root.join(exe);
-            s.exe = if g.exes.first() == Some(&path) { String::new() } else { path.to_string_lossy().into_owned() };
-        });
+        if let Some(root) = self.current().map(|g| g.root.clone()) {
+            self.use_exe(&root.join(exe));
+        }
         self.open_select = None;
+    }
+
+    /// Makes the open game start `exe`; the detected one is saved as no override.
+    fn use_exe(&mut self, exe: &Path) {
+        self.edit(|s, g| {
+            s.exe = if g.exes.first().map(PathBuf::as_path) == Some(exe) {
+                String::new()
+            } else {
+                exe.to_string_lossy().into_owned()
+            };
+        });
     }
 
     fn save(&mut self) {
@@ -467,6 +477,15 @@ impl App {
     }
 
     pub fn add_manual_exe(&mut self, exe: PathBuf) {
+        // An exe inside a game already in the library is that game's: it becomes the one it
+        // starts, rather than a second card with its own settings and prefix.
+        let owner = self.games.iter().filter(|g| exe.starts_with(&g.root)).max_by_key(|g| g.root.components().count());
+        if let Some(root) = owner.map(|g| g.root.clone()) {
+            self.close_search();
+            self.open_panel(&root);
+            self.use_exe(&exe);
+            return;
+        }
         if !self.cfg.manual_exes.contains(&exe) {
             self.cfg.manual_exes.push(exe.clone());
             self.save();
@@ -480,9 +499,7 @@ impl App {
 
     pub fn browse_exe(&mut self, tx: &mut Tx) {
         let dir = self.current().map(|g| g.root.clone());
-        pick_exe(tx, "Choose the game's executable", dir, |s, exe| {
-            s.edit(|settings, _| settings.exe = exe.to_string_lossy().into_owned());
-        });
+        pick_exe(tx, "Choose the game's executable", dir, |s, exe| s.use_exe(&exe));
     }
 
     pub fn open_path(&mut self, path: &Path) {
