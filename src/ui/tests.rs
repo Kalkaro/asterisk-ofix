@@ -444,6 +444,25 @@ fn page_takes_presses_once_a_double_click_cant_happen() {
     assert!(ui.find("grid-scroll").unwrap().inert);
 }
 
+/// While a page opens, a click on another card used to open that game instead: only the card
+/// that opened it takes presses, for the second click of a double click.
+#[test]
+fn other_cards_ignore_clicks_while_a_page_opens() {
+    let mut ui = Ui::new(&[("Hatch", 0), ("Pong", 0)]);
+    let fl = FakeLaunch::install(&mut ui);
+    let (pong, hatch) = (ui.card("Pong"), ui.card("Hatch"));
+    ui.single_click(&pong);
+    for _ in 0..5 {
+        ui.rt.frame(1.0 / 60.0);
+    }
+    assert!(ui.rt.state.page_opening());
+    ui.click(&hatch);
+    ui.settle();
+    assert_eq!(ui.rt.state.selected, Some(ui.game("Pong")), "a click on another card switched the page");
+    assert_eq!(ui.text("title"), "Pong");
+    assert_eq!(fl.count(), 0);
+}
+
 /// The cover flies from the card to the page, and back when the page closes.
 #[test]
 fn cover_flies_between_card_and_page() {

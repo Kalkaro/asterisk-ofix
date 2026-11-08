@@ -281,7 +281,7 @@ fn main(s: &App, k: &Kit, width: f32, layer: &mut Vec<El>) -> El {
     let visible = s.visible();
     let page = s.current();
     // Just after a click on a card opens its page, a second click still goes to the card.
-    let opening = page.is_some() && s.now < s.opening_until;
+    let opening = s.page_opening();
     // The grid stays mounted while a search narrows it, so cards that stop matching fade
     // out in place (and come back the same way) rather than vanishing with it.
     let mut grid = col()
@@ -377,7 +377,7 @@ fn card(s: &App, g: &Game) -> El {
     };
 
     let at = root.clone();
-    col()
+    let card = col()
         .key(card_key(&g.root))
         .transition(Transition::opacity().combined(Transition::scale(0.94)).springs(FADE))
         .w(CARD_W)
@@ -390,7 +390,10 @@ fn card(s: &App, g: &Game) -> El {
         .on_press(move |s: &mut App| s.open_from_card(&at))
         .on_double_press(move |s: &mut App| s.play(&root))
         .child(art.mb(8.0))
-        .child(text(name).key("name").font(BODY).color(TEXT).truncate().w_full())
+        .child(text(name).key("name").font(BODY).color(TEXT).truncate().w_full());
+    // While a page opens, the grid takes presses only for the second click of a double click
+    // on the card that opened it; a click on another card would open that game instead.
+    if s.page_opening() && s.selected.as_deref() != Some(g.root.as_path()) { card.inert() } else { card }
 }
 
 /// The round button in the middle of a card's cover.

@@ -358,6 +358,12 @@ impl App {
         self.open_page(root);
     }
 
+    /// A page just opened by a click on a card, while a second click could still make it a
+    /// double click.
+    pub fn page_opening(&self) -> bool {
+        self.selected.is_some() && self.now < self.opening_until
+    }
+
     pub fn open_page(&mut self, root: &Path) {
         if self.selected.as_deref() != Some(root) {
             self.selected = Some(root.to_path_buf());

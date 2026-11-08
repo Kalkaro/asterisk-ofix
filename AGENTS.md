@@ -80,7 +80,8 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
   typing a search does too. A double click (`on_double_press`), or the play button that
   fades in on hover (`hover_group` + `group_opacity`, no view re-run), starts the game.
   The first click of a double click opens the page, so for `DOUBLE_CLICK` after it the
-  grid still takes presses and the page doesn't (`App::opening_until`). While a game runs,
+  card that opened it still takes presses, no other card does, and neither does the page
+  (`App::page_opening`, `other_cards_ignore_clicks_while_a_page_opens`). While a game runs,
   a Stop button sits in Play's place on its card, always shown, and the page's Play turns
   into Stop. Stop signals every process carrying `GAME_MARKER` (the game's folder, set in
   its environment at launch), inside Steam's sandbox too (`stop_game`). The search is hidden until you type with no text field focused (`App::on_key`),
