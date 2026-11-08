@@ -254,10 +254,10 @@ fn prefix_owner(prefix: &Path) -> Option<PathBuf> {
 /// secret-looking redacted.
 pub fn open_log(paths: &Paths, name: &str, argv: &[String]) -> std::io::Result<(PathBuf, std::fs::File)> {
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
-    let dir = paths.data_dir().join("logs");
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
-    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
-    let path = dir.join(format!("{}.log", slug(name)));
+    let path = log_path(paths, name);
+    let dir = path.parent().unwrap_or(Path::new("/"));
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
     let mut f = std::fs::OpenOptions::new().create(true).truncate(true).write(true).mode(0o600).open(&path)?;
     // `mode` only applies to new files.
     f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
@@ -270,6 +270,11 @@ pub fn open_log(paths: &Paths, name: &str, argv: &[String]) -> std::io::Result<(
         .collect();
     writeln!(f, "$ {}\n", shell_join(&shown))?;
     Ok((path, f))
+}
+
+/// Where the log of the game called `name` goes; each launch overwrites it.
+pub fn log_path(paths: &Paths, name: &str) -> PathBuf {
+    paths.data_dir().join("logs").join(format!("{}.log", slug(name)))
 }
 
 /// Parts of variable names (split on _ and -) that mark a secret.

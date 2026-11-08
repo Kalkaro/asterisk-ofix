@@ -666,6 +666,18 @@ fn a_hand_picked_exe_from_a_known_game_becomes_its_executable() {
     }
 }
 
+/// Logs were only remembered for games launched since the app started, so after a restart
+/// the Log button said there was none.
+#[test]
+fn the_log_from_an_earlier_run_opens() {
+    let ui = Ui::new(&[("Pong", 0)]);
+    let g = ui.rt.state.game(&ui.game("Pong")).unwrap().clone();
+    assert_eq!(ui.rt.state.log_for(&g), None, "no launch, no log");
+    let log = ui.paths().data_dir().join("logs/Pong.log");
+    crate::testutil::write(&log, "$ proton");
+    assert_eq!(ui.rt.state.log_for(&g), Some(log));
+}
+
 #[test]
 fn a_broken_config_says_so() {
     let home = tempdir();

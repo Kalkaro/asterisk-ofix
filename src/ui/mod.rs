@@ -510,10 +510,19 @@ impl App {
     }
 
     pub fn open_log(&mut self) {
-        match self.current().and_then(|g| self.logs.get(&g.root)).cloned() {
+        match self.current().and_then(|g| self.log_for(g)) {
             Some(log) => self.open_path(&log),
             None => self.set_status("No log yet. Launch the game first."),
         }
+    }
+
+    /// The game's latest log: from this run, or left by an earlier one.
+    pub fn log_for(&self, g: &Game) -> Option<PathBuf> {
+        if let Some(log) = self.logs.get(&g.root) {
+            return Some(log.clone());
+        }
+        let log = crate::launch::log_path(&self.paths, &self.spec_for(g).ok()?.name);
+        log.is_file().then_some(log)
     }
 
     /// Shows a message in a toast that hides itself after a while.
