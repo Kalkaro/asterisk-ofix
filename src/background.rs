@@ -280,6 +280,18 @@ struct Shared {
     state: Mutex<Clock>,
 }
 
+impl Shared {
+    /// Shows a frame drawn on the animation thread, unless the size changed while it was
+    /// drawn: `set_size` already showed one at the new size, and this would stretch over it.
+    /// Checked and set under the lock, so `set_size` can't change the size in between.
+    fn deliver(&self, size: (u32, u32), frame: Vec<u8>) {
+        let st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if st.size == size {
+            self.pixels.set(size.0, size.1, frame);
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Clock {
     /// Animation time in seconds; stops while paused.
@@ -354,7 +366,7 @@ impl Background {
                     (t, running, st.size)
                 };
                 if running && w > 0 && h > 0 {
-                    shared.pixels.set(w, h, shared.stars.render(w, h, t));
+                    shared.deliver((w, h), shared.stars.render(w, h, t));
                 }
             }
         });
@@ -428,6 +440,19 @@ mod tests {
         assert!(running && (t - 0.1).abs() < 1e-9, "resumed at {t}, want 0.1 (no jump for the paused time)");
         let (t, _) = c.advance(t0 + Duration::from_secs(20));
         assert!(t < 0.36, "a stalled tick jumped the clock to {t}");
+    }
+
+    /// A frame the animation thread started before a resize landed after `set_size`'s frame
+    /// at the new size, stretching the old size over the window for a tick.
+    #[test]
+    fn a_frame_for_an_old_size_is_dropped() {
+        let bg = Background::new();
+        bg.set_size(512, 256);
+        bg.set_size(256, 256);
+        bg.0.deliver((512, 256), vec![0; 512 * 256 * 4]);
+        assert_eq!(bg.pixels().size(), (256, 256));
+        bg.0.deliver((256, 256), vec![0; 256 * 256 * 4]);
+        assert_eq!(bg.pixels().size(), (256, 256));
     }
 
     /// The backdrop only changes size in CHUNK steps, so a live resize doesn't stretch a
