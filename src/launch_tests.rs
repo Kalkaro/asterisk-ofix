@@ -215,6 +215,48 @@ fn splits_and_quotes_like_a_shell() {
     assert_eq!(slug("Cool Game: 2"), "Cool_Game__2");
 }
 
+/// Prefixes were named after the game's folder alone, so two games in folders of the same
+/// name shared saves: hand-picked Unreal games (both in Binaries/Win64), or one folder name
+/// in two libraries. The first to launch keeps the plain name; the other gets its own.
+#[test]
+fn games_in_same_named_folders_get_their_own_prefixes() {
+    let home = tempdir();
+    let paths = Paths::under(home.path());
+    let a = home.path().join("A/Binaries/Win64");
+    let b = home.path().join("B/Binaries/Win64");
+    std::fs::create_dir_all(&a).unwrap();
+    std::fs::create_dir_all(&b).unwrap();
+    let plain = paths.data_dir().join("prefixes/Win64");
+    assert_eq!(default_prefix(&paths, &a), plain, "an unclaimed prefix keeps the old name");
+
+    claim_default_prefix(&paths, &LaunchSpec { prefix: plain.clone(), game_dir: a.clone(), ..spec() }).unwrap();
+    assert_eq!(default_prefix(&paths, &a), plain, "the game that launched keeps it");
+    let own = default_prefix(&paths, &b);
+    assert_ne!(own, plain, "another game with the same folder name doesn't share it");
+    assert!(crate::scan::file_name(&own).starts_with("Win64-"), "{}", own.display());
+    assert_eq!(default_prefix(&paths, &b), own, "and its name is stable");
+
+    // A game whose folder moved finds its saves again: the old owner is gone.
+    let moved = home.path().join("Elsewhere/A/Binaries/Win64");
+    std::fs::create_dir_all(&moved).unwrap();
+    std::fs::remove_dir_all(home.path().join("A")).unwrap();
+    assert_eq!(default_prefix(&paths, &moved), plain);
+}
+
+/// A prefix the user picked by hand (or with --prefix) is never claimed, or launching one
+/// game in another's prefix would take that prefix from it.
+#[test]
+fn a_chosen_prefix_is_not_claimed() {
+    let home = tempdir();
+    let paths = Paths::under(home.path());
+    let (a, b) = (home.path().join("Game"), home.path().join("Other"));
+    std::fs::create_dir_all(&a).unwrap();
+    std::fs::create_dir_all(&b).unwrap();
+    let plain = default_prefix(&paths, &a);
+    claim_default_prefix(&paths, &LaunchSpec { prefix: plain.clone(), game_dir: b, ..spec() }).unwrap();
+    assert_eq!(default_prefix(&paths, &a), plain, "b launched in a prefix that isn't its default");
+}
+
 #[test]
 fn settings_override_detected_defaults() {
     let home = tempdir();

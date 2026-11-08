@@ -135,7 +135,10 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
 - The side panel always floats. Opening it must never move a card, and it must not cover
   the header (`panel_floats_over_the_grid`).
 - The Wine prefixes in `~/.local/share/asterisk-ofix/prefixes/` hold the games' saves.
-  Never move or delete them, and keep `default_prefix` naming them the same way.
+  Never move or delete them, and keep `default_prefix` naming them the same way: after the
+  game's folder, plus a hash of its path only when another live game with that folder name
+  owns the plain one (`.asterisk-ofix-game` in the prefix, written on launch by
+  `claim_default_prefix`; `games_in_same_named_folders_get_their_own_prefixes`).
 - Fonts in `fonts/` are static instances cut from the variable Google Sans Flex (OFL,
   `ofl/googlesansflex` in github.com/google/fonts), fully rounded: the user asked for the
   roundness axis (`embedded_fonts_are_rounded`). To regenerate them:

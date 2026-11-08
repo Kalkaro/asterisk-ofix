@@ -144,6 +144,7 @@ impl Steam {
         use std::os::unix::process::CommandExt;
         let argv = self.command(spec)?;
         std::fs::create_dir_all(&spec.prefix).map_err(|e| format!("creating prefix: {e}"))?;
+        claim_default_prefix(paths, spec).map_err(|e| format!("claiming prefix: {e}"))?;
         let (log_path, log) = open_log(paths, &spec.name, &argv).map_err(|e| format!("log: {e}"))?;
         let err_log = log.try_clone().map_err(|e| e.to_string())?;
         let mut cmd = std::process::Command::new(&argv[0]);
@@ -195,7 +196,7 @@ pub fn build_spec(
     };
     Ok(LaunchSpec {
         name: first_non_empty(&s.name, &g.name).to_owned(),
-        prefix: if s.prefix.is_empty() { default_prefix(paths, g) } else { PathBuf::from(&s.prefix) },
+        prefix: if s.prefix.is_empty() { default_prefix(paths, &g.root) } else { PathBuf::from(&s.prefix) },
         exe,
         game_dir: g.root.clone(),
         proton,
@@ -206,9 +207,47 @@ pub fn build_spec(
     })
 }
 
-/// The game's own Wine prefix.
-pub fn default_prefix(paths: &Paths, g: &Game) -> PathBuf {
-    paths.data_dir().join("prefixes").join(slug(&crate::scan::file_name(&g.root)))
+/// Names the game folder that launched in a prefix, so another game in a folder of the same
+/// name doesn't share its saves.
+const PREFIX_OWNER: &str = ".asterisk-ofix-game";
+
+/// The Wine prefix of the game in `root`: named after its folder, as it always was, unless a
+/// game in another folder of that name has claimed that prefix. Then the folder's name gets a
+/// hash of its path. An owner whose folder is gone (it moved) gives the prefix up.
+pub fn default_prefix(paths: &Paths, root: &Path) -> PathBuf {
+    use std::os::unix::ffi::OsStrExt;
+    let name = slug(&crate::scan::file_name(root));
+    let plain = paths.data_dir().join("prefixes").join(&name);
+    match prefix_owner(&plain) {
+        Some(owner) if owner != root && owner.exists() => {
+            // FNV-1a: stable across Rust versions, unlike std's hasher.
+            let hash = root.as_os_str().as_bytes().iter().fold(0xcbf29ce484222325u64, |h, &b| {
+                (h ^ b as u64).wrapping_mul(0x100000001b3)
+            });
+            paths.data_dir().join("prefixes").join(format!("{name}-{:08x}", hash as u32))
+        }
+        _ => plain,
+    }
+}
+
+/// Records which game a launch's prefix belongs to, when it's the game's default one that
+/// nobody (still around) owns. A prefix chosen by hand is left alone.
+pub fn claim_default_prefix(paths: &Paths, spec: &LaunchSpec) -> std::io::Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    if spec.prefix != default_prefix(paths, &spec.game_dir) {
+        return Ok(());
+    }
+    if prefix_owner(&spec.prefix).is_some_and(|o| o == spec.game_dir || o.exists()) {
+        return Ok(());
+    }
+    std::fs::create_dir_all(&spec.prefix)?;
+    std::fs::write(spec.prefix.join(PREFIX_OWNER), spec.game_dir.as_os_str().as_bytes())
+}
+
+fn prefix_owner(prefix: &Path) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let data = std::fs::read(prefix.join(PREFIX_OWNER)).ok()?;
+    Some(PathBuf::from(std::ffi::OsStr::from_bytes(&data)))
 }
 
 /// A game's log, private to the user, starting with the launch command with anything
