@@ -162,7 +162,8 @@ installer on the user's machine; check it in CI. Run `shellcheck` and `actionlin
   (and `wght=600` for SemiBold). Static cuts round every text, rune-kit's controls
   included; per-style `TextStyle::variations` would miss the kit's own styles.
 - `flake.nix` builds from an explicit fileset. New non-Rust files that get embedded, like
-  the fonts, must be added to it.
+  the fonts, must be added to it. `packaging/` is in it so the package installs the app
+  menu entry and icon (`nix flake check` builds `checks.desktop-entry`, which validates it).
 - Rune is pinned to a `dev` rev in Cargo.toml, with the toolchain it pins (rust-toolchain
   in Rune's repo) in flake.nix. Bump them together. Rune's docs are its
   `crates/rune/README.md` and `crates/rune-kit/README.md`.

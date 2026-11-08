@@ -15,7 +15,7 @@ curl -fsSL https://raw.githubusercontent.com/Kalkaro/asterisk-ofix/main/install.
 NixOS
 
 ```sh
-nix run github:Kalkaro/asterisk-ofix
+nix profile add github:Kalkaro/asterisk-ofix
 ```
 
 Run the install again to update. To uninstall, change `bash` to `bash -s -- --uninstall`

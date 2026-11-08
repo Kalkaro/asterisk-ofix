@@ -81,6 +81,7 @@
                 ./Cargo.lock
                 ./src
                 ./fonts
+                ./packaging
               ];
             };
             cargoLock = {
@@ -94,6 +95,11 @@
               pkgs.makeWrapper
             ];
             buildInputs = buildLibs pkgs;
+            # The app menu entry and its icon, as the AppImage carries them.
+            postInstall = ''
+              install -Dm644 packaging/asterisk-ofix.desktop -t $out/share/applications
+              install -Dm644 packaging/asterisk-ofix.svg -t $out/share/icons/hicolor/scalable/apps
+            '';
             postFixup = ''
               wrapProgram $out/bin/asterisk-ofix \
                 --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath (runtimeLibs pkgs)}
@@ -102,6 +108,23 @@
           };
         }
       );
+
+      # The package shows up in app menus: a valid desktop entry whose command and icon it ships.
+      checks = forAll (pkgs: {
+        desktop-entry =
+          let
+            app = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
+          in
+          pkgs.runCommand "asterisk-ofix-desktop-entry" { nativeBuildInputs = [ pkgs.desktop-file-utils ]; } ''
+            entry=${app}/share/applications/asterisk-ofix.desktop
+            desktop-file-validate "$entry"
+            grep -qx 'Exec=asterisk-ofix' "$entry"
+            test -x ${app}/bin/asterisk-ofix
+            grep -qx 'Icon=asterisk-ofix' "$entry"
+            test -s ${app}/share/icons/hicolor/scalable/apps/asterisk-ofix.svg
+            touch $out
+          '';
+      });
 
       devShells = forAll (pkgs: {
         default = pkgs.mkShell {
