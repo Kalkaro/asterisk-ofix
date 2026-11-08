@@ -147,7 +147,7 @@ impl Stars {
             let bright = s.bright * (0.8 + 0.2 * (t * 0.9 + s.twinkle).sin());
 
             if s.r == 0.0 {
-                sparkle((cx / cw) as i32, (cy / ch) as i32, rot, s.arms, bright, &mut put);
+                sparkle(cell(cx, cw), cell(cy, ch), rot, s.arms, bright, &mut put);
                 continue;
             }
             let (sin, cos) = (-rot).sin_cos();
@@ -184,6 +184,12 @@ impl Stars {
         }
         dst
     }
+}
+
+/// The cell a position falls in, counting cells off the top or left edge as negative: `as`
+/// rounds toward zero, which put a sparkle just off the edge in the first cell.
+fn cell(v: f64, size: f64) -> i32 {
+    (v / size).floor() as i32
 }
 
 /// A small star: a bright * with arms that are  - |  or  / \  depending on how far it has
@@ -440,6 +446,19 @@ mod tests {
         assert!(running && (t - 0.1).abs() < 1e-9, "resumed at {t}, want 0.1 (no jump for the paused time)");
         let (t, _) = c.advance(t0 + Duration::from_secs(20));
         assert!(t < 0.36, "a stalled tick jumped the clock to {t}");
+    }
+
+    /// A sparkle drifting in from the left or top was drawn in the first cell while still
+    /// off the edge, so it popped in a cell early.
+    #[test]
+    fn sparkles_off_the_edge_stay_off() {
+        assert_eq!(cell(-3.0, 8.0), -1);
+        assert_eq!(cell(-0.1, 14.0), -1);
+        assert_eq!(cell(0.0, 8.0), 0);
+        assert_eq!(cell(15.9, 8.0), 1);
+        let mut drawn = Vec::new();
+        sparkle(cell(-3.0, 8.0), cell(20.0, 14.0), 0.0, false, 1.0, &mut |col, row, _, _| drawn.push((col, row)));
+        assert_eq!(drawn, [(-1, 1)], "put clips it");
     }
 
     /// A frame the animation thread started before a resize landed after `set_size`'s frame
