@@ -2,8 +2,7 @@
 
 <h1 align="center">Run games with OnlineFix on Linux</h1>
 
-A Linux launcher for OnlineFix games. It runs them with Proton, the way Steam would, so the
-Steam overlay (Shift+Tab) and online play work.
+A Linux launcher for OnlineFix games. It uses Proton to run them.
 
 ![The library, with the pointer over a game](docs/preview.png)
 
