@@ -206,6 +206,11 @@ fn splits_and_quotes_like_a_shell() {
     assert_eq!(split_shell(r#"a "b c" 'd\e' f\ g"#).unwrap(), ["a", "b c", r"d\e", "f g"]);
     assert_eq!(split_shell("  ").unwrap(), Vec::<String>::new());
     assert_eq!(split_shell("''").unwrap(), [""]);
+    // In double quotes a backslash only escapes $ ` " \ and newlines, as in sh, so Windows
+    // paths survive. They used to lose every backslash: "C:\Games" became C:Games.
+    assert_eq!(split_shell(r#"-path "C:\Games\x""#).unwrap(), ["-path", r"C:\Games\x"]);
+    assert_eq!(split_shell(r#""a\"b\\c\$d""#).unwrap(), [r#"a"b\c$d"#]);
+    assert_eq!(split_shell(r"trailing\").unwrap(), [r"trailing\"]);
     assert_eq!(shell_join(&["a b".into(), "it's".into(), "plain".into()]), r"'a b' 'it'\''s' plain");
     assert_eq!(slug("Cool Game: 2"), "Cool_Game__2");
 }

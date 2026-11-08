@@ -293,6 +293,10 @@ pub fn split_shell(s: &str) -> Result<Vec<String>, String> {
     for c in s.chars() {
         match c {
             _ if escaped => {
+                // Inside double quotes only these are escaped; other backslashes stay.
+                if quote == Some('"') && !matches!(c, '$' | '`' | '"' | '\\' | '\n') {
+                    cur.push('\\');
+                }
                 cur.push(c);
                 escaped = false;
             }
@@ -325,6 +329,9 @@ pub fn split_shell(s: &str) -> Result<Vec<String>, String> {
     }
     if quote.is_some() {
         return Err("unterminated quote".into());
+    }
+    if escaped {
+        cur.push('\\');
     }
     if in_word {
         out.push(cur);
