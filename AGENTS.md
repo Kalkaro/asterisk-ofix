@@ -53,6 +53,15 @@ Don't launch the app on the user's desktop to take screenshots. In a sandbox wit
 GPU, add `VK_ICD_FILENAMES=/run/opengl-driver/share/vulkan/icd.d/lvp_icd.x86_64.json`
 (Mesa's software Vulkan).
 
+The README's `docs/preview.png` is `hover.png` from that script, shrunk to 1280 wide. The
+logo, `docs/logo.svg`, is drawn from the bundled font's outlines (the asterisk centred on
+the lowercase letters); redraw it after a font change:
+
+```sh
+nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
+  'python3 scripts/logo.py fonts/GoogleSansFlex-SemiBold.ttf docs/logo.svg 1280 400 220'
+```
+
 ## Layout
 
 - `src/ui/mod.rs`: `App`, all UI state and actions (scan, sort, search, open the panel,

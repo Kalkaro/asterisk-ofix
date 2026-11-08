@@ -1,8 +1,12 @@
+<p align="center"><img src="docs/logo.svg" alt="aster*sk" width="640"></p>
+
 # asterisk-ofix
 
 Launches OnlineFix / SteamFix games directly through Proton with the Steam overlay
 (Shift+Tab) attached. Nothing is added to your Steam library. Written in Rust with
 [Rune](https://github.com/anomalyco/rune).
+
+![The library, with the pointer over a game](docs/preview.png)
 
 ## How it launches
 
