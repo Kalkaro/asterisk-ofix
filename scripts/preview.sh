@@ -12,7 +12,7 @@ if [[ ${2:-} != --real ]]; then
   demo=$(mktemp -d)
   trap 'rm -rf "$demo"' EXIT
   nix-shell -p 'python3.withPackages (p: [p.pillow])' --run \
-    "python3 -I scripts/demo_home.py '$demo' fonts/GoogleSansFlex-SemiBold.ttf" >/dev/null
+    "python3 -I scripts/demo_home.py '$demo'" >/dev/null
   export HOME=$demo
   unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME
 fi

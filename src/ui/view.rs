@@ -61,14 +61,14 @@ pub const SCENES: &[Scene] = &[
         }
     }),
     ("search", |s| {
-        s.search = rune::TextEdit::new("or");
+        s.search = rune::TextEdit::new("game");
         s.search_open = true;
     }),
     ("no-matches", |s| {
         s.search = rune::TextEdit::new("zzzz");
         s.search_open = true;
     }),
-    ("toast", |s| s.set_status("Launched Neon Harbor with Proton 9.0")),
+    ("toast", |s| s.set_status("Launched Pong with Proton 9.0")),
 ];
 
 pub fn view(s: &App, cx: &mut Cx<App>) -> El {
