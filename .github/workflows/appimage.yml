@@ -45,10 +45,12 @@ jobs:
           - distro: arch
             image: archlinux:latest
             deps: pacman -Syu --noconfirm vulkan-icd-loader vulkan-swrast wayland libxkbcommon fontconfig
+            # Arch's name for it has no architecture in it.
+            icd: /usr/share/vulkan/icd.d/lvp_icd.json
     container: ${{ matrix.image }}
     env:
       DEBIAN_FRONTEND: noninteractive
-      VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+      VK_ICD_FILENAMES: ${{ matrix.icd || '/usr/share/vulkan/icd.d/lvp_icd.x86_64.json' }}
     steps:
       - run: ${{ matrix.deps }}
       - uses: actions/checkout@v4
