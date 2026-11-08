@@ -21,11 +21,8 @@ NixOS, run:
 nix run github:Kalkaro/asterisk-ofix
 ```
 
-Run the install again to update. To remove it (your saves stay):
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/Kalkaro/asterisk-ofix/main/install.sh | bash -s -- --uninstall
-```
+Run the install again to update. To uninstall, change `bash` to `bash -s -- --uninstall`
+(your saves stay).
 
 It needs a native Steam install; Flatpak and Snap Steam aren't supported.
 
