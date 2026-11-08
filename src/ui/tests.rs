@@ -514,7 +514,7 @@ fn header_fits_at_every_width() {
 #[test]
 fn header_is_anchored_left() {
     let mut ui = Ui::new(&[("Hatch", 0)]);
-    let keys = ["count", "rescan", "add-folder", "add-game"];
+    let keys = ["logo", "library-title", "count", "rescan", "add-folder", "add-game"];
     ui.resize(1300.0, 700.0);
     let wide: Vec<_> = keys.iter().map(|k| ui.rect(k)).collect();
     let mut w = 1299.0;
@@ -666,4 +666,15 @@ fn perf() {
         }
         eprintln!("backdrop frame {w}x{h}: {:?}", start.elapsed() / 20);
     }
+}
+
+/// The asterisk mark sits just left of the title, its centre on the middle of the capitals.
+#[test]
+fn asterisk_mark_beside_the_title() {
+    let ui = Ui::new(&[]);
+    let [lx, ly, lw, lh] = ui.rect("logo");
+    let [tx, ty, _, th] = ui.rect("library-title");
+    assert!(lx + lw <= tx + 1.0 && tx - (lx + lw) < 8.0, "the asterisk is right before the title");
+    assert_eq!(lh, th, "set on the title's line");
+    assert_eq!(ly - ty, 4.0, "lowered 0.2 em (rounded to whole points) onto the capitals' middle");
 }

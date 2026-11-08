@@ -26,6 +26,9 @@ const HERO_H: f32 = 210.0;
 pub const BG_BLUR: f32 = 0.8;
 /// Header buttons drop their labels below this window width.
 const SEARCH_W: f32 = 520.0;
+/// How far below its own spot the asterisk's centre goes to sit on the middle of the
+/// capitals, in ems of Google Sans Flex SemiBold: (its ink's centre - cap height / 2) / em.
+const ASTERISK_DROP: f32 = 0.1995;
 const SEARCH_H: f32 = 52.0;
 const SEARCH_BOTTOM: f32 = 28.0;
 
@@ -100,9 +103,18 @@ fn header(s: &App, k: &Kit) -> El {
         .pb(14.0)
         .gap(10.0)
         .center_y()
-        .child(text("Library").font(PAGE_TITLE).color(TEXT))
+        .child(
+            // The font's asterisk sits up near the cap height; this lowers its centre onto the
+            // middle of the capitals beside it.
+            text("*")
+                .key("logo")
+                .font(PAGE_TITLE)
+                .color(TEXT)
+                .offset(0.0, (ASTERISK_DROP * PAGE_TITLE.size).round())
+                .mr(-4.0),
+        )
+        .child(text("Library").key("library-title").font(PAGE_TITLE).color(TEXT))
         .child(text(count).key("count").font(CAPTION_STRONG).color(MUTED).px(8.0).py(2.0).radius(10.0).fill(RAISED))
-        .child(el().w(1.0).h(20.0).mx(6.0).fill(BORDER))
         .child(
             IconButton::new(&REFRESH)
                 .label("Rescan")
