@@ -34,9 +34,29 @@ you're logged in.
 Settings are in `~/.config/asterisk-ofix/config.json`, and each game's last log is in
 `~/.local/share/asterisk-ofix/logs/`.
 
+## Installing
+
+On Arch, Fedora, Ubuntu, Debian and most other x86_64 distros (glibc 2.35 or newer), this
+downloads the latest AppImage to `~/.local/bin` and adds it to your app menu:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Kalkaro/asterisk-ofix/main/install.sh | bash
+```
+
+Run it again to update. To remove it (your saves stay):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Kalkaro/asterisk-ofix/main/install.sh | bash -s -- --uninstall
+```
+
+It needs a native Steam install; Flatpak and Snap Steam aren't supported. On NixOS, use
+`nix run github:Kalkaro/asterisk-ofix`.
+
 ## Building
 
-You need Nix with flakes.
+The AppImage is built by `.github/workflows/appimage.yml` when a `v*` tag is pushed
+(`scripts/appimage.sh`, on Ubuntu 22.04 so it runs on older glibc). Otherwise you need Nix
+with flakes.
 
 ```sh
 nix run .                                 # build and start it

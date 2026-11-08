@@ -97,6 +97,19 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
 - `src/scan.rs`, `src/steam.rs`, `src/launch.rs`, `src/vdf.rs`, `src/config.rs`,
   `src/paths.rs`: game detection, Proton/Steam discovery, launching, config and paths.
 
+## AppImage and install.sh
+
+`scripts/appimage.sh` builds `dist/asterisk-ofix-x86_64.AppImage`: just the binary, which
+links only glibc (everything else is dlopen()ed from the system), plus
+`packaging/asterisk-ofix.desktop` and the icon `packaging/asterisk-ofix.svg` (drawn by
+`scripts/icon.py` from the font's asterisk). CI (`.github/workflows/appimage.yml`) builds it
+on Ubuntu 22.04, runs `install.sh` and a headless `--snap` in Ubuntu, Debian, Fedora and Arch
+containers, and attaches it to the release on a `v*` tag. `install.sh` is the curl one-liner
+in the README: it fetches the release's AppImage into `~/.local/bin` with a menu entry, and
+`--uninstall` removes those but never `~/.local/share/asterisk-ofix` (the saves). Keep
+`RUST_TOOLCHAIN` in `appimage.sh` and the workflow in step with flake.nix. Don't run the
+installer on the user's machine; check it in CI. Run `shellcheck` and `actionlint` on changes.
+
 ## Gotchas
 
 - Rune's `Color` is **linear** sRGB. Palette constants in `theme.rs` are decoded from the

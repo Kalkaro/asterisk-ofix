@@ -1,0 +1,91 @@
+# Builds the AppImage, checks that install.sh installs it and that it starts on a few
+# distros, and attaches it to the release when a v* tag is pushed.
+name: AppImage
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    # Its glibc is the oldest the AppImage runs on.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y pkg-config libxkbcommon-dev libwayland-dev file
+      - run: rustup toolchain install 1.99.1 --profile minimal
+      - uses: Swatinem/rust-cache@v2
+      - run: scripts/appimage.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appimage
+          path: dist/asterisk-ofix-x86_64.AppImage
+
+  # A fresh container per distro: install.sh puts the AppImage in a throwaway home, the app
+  # renders its window headless on Mesa's software Vulkan, and --uninstall removes it again.
+  smoke:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: ubuntu
+            image: ubuntu:22.04
+            deps: apt-get update && apt-get install -y curl libvulkan1 mesa-vulkan-drivers libwayland-client0 libxkbcommon0 libfontconfig1
+          - distro: debian
+            image: debian:12
+            deps: apt-get update && apt-get install -y curl libvulkan1 mesa-vulkan-drivers libwayland-client0 libxkbcommon0 libfontconfig1
+          - distro: fedora
+            image: fedora:latest
+            deps: dnf install -y vulkan-loader mesa-vulkan-drivers libwayland-client libxkbcommon fontconfig
+          - distro: arch
+            image: archlinux:latest
+            deps: pacman -Syu --noconfirm vulkan-icd-loader vulkan-swrast wayland libxkbcommon fontconfig
+    container: ${{ matrix.image }}
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+    steps:
+      - run: ${{ matrix.deps }}
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: appimage
+          path: dist
+      - name: install, start, uninstall
+        shell: bash
+        run: |
+          set -euxo pipefail
+          HOME=$(mktemp -d)
+          export HOME PATH="$HOME/.local/bin:$PATH"
+          ASTERISK_OFIX_URL="file://$PWD/dist/asterisk-ofix-x86_64.AppImage" bash install.sh
+          test -x "$HOME/.local/bin/asterisk-ofix"
+          grep -q "^Exec=.*$HOME/.local/bin/asterisk-ofix" "$HOME/.local/share/applications/asterisk-ofix.desktop"
+          grep -q "<svg" "$HOME/.local/share/icons/hicolor/scalable/apps/asterisk-ofix.svg"
+          # No FUSE in a container: it unpacks itself, as the menu entry does then.
+          APPIMAGE_EXTRACT_AND_RUN=1 asterisk-ofix --snap "$GITHUB_WORKSPACE/${{ matrix.distro }}.png" --size 1080x720
+          test -s "$GITHUB_WORKSPACE/${{ matrix.distro }}.png"
+          bash install.sh --uninstall
+          test ! -e "$HOME/.local/bin/asterisk-ofix"
+          test ! -e "$HOME/.local/share/applications/asterisk-ofix.desktop"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshot-${{ matrix.distro }}
+          path: ${{ matrix.distro }}.png
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: appimage
+          path: dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/asterisk-ofix-x86_64.AppImage
