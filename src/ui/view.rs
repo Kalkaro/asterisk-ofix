@@ -26,6 +26,9 @@ const HERO_H: f32 = 210.0;
 pub const BG_BLUR: f32 = 0.8;
 /// Header buttons drop their labels below this window width.
 const SEARCH_W: f32 = 520.0;
+/// Things that come and go (cards a search hides, the toast) fade over about a third of a
+/// second. Rune's default presence fade is over in ~0.1 s, which reads as popping.
+const FADE: SpringPair = SpringPair::new(Spring::new(0.35, 0.0), Spring::new(0.35, 0.0));
 /// How far below its own spot the asterisk's centre goes to sit on the middle of the
 /// capitals, in ems of Google Sans Flex SemiBold: (its ink's centre - cap height / 2) / em.
 const ASTERISK_DROP: f32 = 0.1995;
@@ -163,6 +166,13 @@ fn search_bar(s: &App, k: &Kit, window_w: f32) -> El {
         .key("search-row")
         .pin(Some(GUTTER), None, Some(GUTTER + odd(window_w)), Some(SEARCH_BOTTOM))
         .justify_center()
+        // On the row, which is what comes and goes, so the bar animates out as well as in.
+        .transition(
+            Transition::offset(0.0, 36.0)
+                .combined(Transition::scale(0.92))
+                .combined(Transition::opacity())
+                .springs(SpringPair::new(pop, Spring::new(0.32, 0.0))),
+        )
         .child(
             row()
                 .key("search-bar")
@@ -177,12 +187,6 @@ fn search_bar(s: &App, k: &Kit, window_w: f32) -> El {
                 .fill(RAISED.alpha(0.82))
                 .border(1.0, Color::WHITE.alpha(0.10))
                 .shadow(18.0, 44.0, Color::BLACK.alpha(0.75))
-                .transition(
-                    Transition::offset(0.0, 36.0)
-                        .combined(Transition::scale(0.92))
-                        .combined(Transition::opacity())
-                        .springs(SpringPair::new(pop, Spring::new(0.24, 0.0))),
-                )
                 .child(icon(k.glyph.search, 18.0).color(MUTED))
                 .child(el().key("search").grow(1.0).min_w(0.0).child(field))
                 .child(text(count).key("search-count").font(CAPTION).color(MUTED))
@@ -205,33 +209,37 @@ fn search_bar(s: &App, k: &Kit, window_w: f32) -> El {
 /// The grid, with the side panel floating over its right edge.
 fn main(s: &App, k: &Kit, width: f32, layer: &mut Vec<El>) -> El {
     let visible = s.visible();
-    let body = if visible.is_empty() {
-        empty(s, k).pr(odd(width))
-    } else {
-        let cards = visible.iter().map(|g| card(s, g));
-        col()
-            .key("grid-scroll")
-            .w_full()
-            .h_full()
-            .child(
-                row()
-                    .key("grid")
-                    .w_full()
-                    .flex_wrap()
-                    .gaps(GAP + 6.0, GAP)
-                    .px(GUTTER)
-                    .pt(6.0)
-                    .pb(GUTTER)
-                    .children(cards),
-            )
-            .scroll(ScrollSpec { stick_bottom: false })
-            .scroll_edge_fade(18.0)
-    };
+    // The grid stays mounted while a search narrows it, so cards that stop matching fade
+    // out in place (and come back the same way) rather than vanishing with it.
+    let grid = col()
+        .key("grid-scroll")
+        .w_full()
+        .h_full()
+        .child(
+            row()
+                .key("grid")
+                .w_full()
+                .flex_wrap()
+                .gaps(GAP + 6.0, GAP)
+                .px(GUTTER)
+                .pt(6.0)
+                .pb(GUTTER)
+                .children(visible.iter().map(|g| card(s, g))),
+        )
+        .scroll(ScrollSpec { stick_bottom: false })
+        .scroll_edge_fade(18.0);
+    let empty = visible.is_empty().then(|| {
+        empty(s, k)
+            .absolute(0.0, 0.0)
+            .pr(odd(width))
+            .transition(Transition::opacity().combined(Transition::offset(0.0, 8.0)).springs(FADE))
+    });
     el().key("main")
         .w_full()
         .grow(1.0)
         .min_h(0.0)
-        .child(body)
+        .child(grid)
+        .children(empty)
         .children(s.current().map(|g| panel(s, k, g, (width - 2.0 * PANEL_MARGIN).min(PANEL_W), layer)))
 }
 
@@ -290,6 +298,7 @@ fn card(s: &App, g: &Game) -> El {
     let open = root.clone();
     col()
         .key(card_key(&g.root))
+        .transition(Transition::opacity().combined(Transition::scale(0.94)).springs(FADE))
         .w(CARD_W)
         .gap(2.0)
         .role("button")
@@ -568,6 +577,8 @@ fn toast(message: &str, seq: u64, window_w: f32, above_search: bool) -> El {
         .key("toast-row")
         .pin(Some(GUTTER), None, Some(GUTTER + odd(window_w)), Some(bottom))
         .motion(Spring::new(0.35, 0.1))
+        // The row is what goes when the toast times out; the pill inside swaps per message.
+        .transition(Transition::offset(0.0, 12.0).combined(Transition::opacity()).springs(FADE))
         .justify_center()
         .child(
             row()
@@ -581,7 +592,7 @@ fn toast(message: &str, seq: u64, window_w: f32, above_search: bool) -> El {
                 .fill(RAISED)
                 .border(1.0, BORDER)
                 .shadow(10.0, 30.0, Color::BLACK.alpha(0.6))
-                .transition(Transition::offset(0.0, 12.0).combined(Transition::opacity()))
+                .transition(Transition::offset(0.0, 12.0).combined(Transition::opacity()).springs(FADE))
                 .child(el().size(6.0, 6.0).radius(3.0).fill(PRIMARY))
                 .child(text(message).key("toast").font(BODY).color(TEXT).truncate()),
         )

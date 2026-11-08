@@ -114,6 +114,11 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
 - Hyprland tiles windows smaller than the minimum size, and then the right edge is
   cropped. Keep `MIN_WINDOW` under 600 wide and the header fitting at it
   (`header_fits_at_every_width`).
+- Rune fades out removed elements by default, but in about 0.1 s, which reads as popping.
+  Things that come and go (cards a search hides, the search bar, the toast) use the `FADE`
+  springs, and the element that's actually removed carries the transition: a transition
+  on a child of a removed row never runs (`filtered_cards_fade_out_and_back`,
+  `search_bar_fades_out`).
 - A focused text field takes Escape to drop its focus, so a field that should close on
   Escape handles it in its own `on_key` (the search bar does).
 - Cards are fixed-size (`CARD_W`) and only reflow in a wrapping row. Stretching them made

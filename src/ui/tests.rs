@@ -95,6 +95,11 @@ impl Ui {
         Some((found.1.rect, found.1.opacity))
     }
 
+    /// The opacity of `key` while it animates away, if it's on its way out.
+    fn leaving(&self, key: &str) -> Option<f32> {
+        self.elements().into_iter().find(|e| e.key.as_deref() == Some(key) && e.exiting).map(|e| e.opacity)
+    }
+
     fn text(&self, key: &str) -> String {
         self.find(key).and_then(|e| e.text).unwrap_or_default()
     }
@@ -666,6 +671,69 @@ fn perf() {
         }
         eprintln!("backdrop frame {w}x{h}: {:?}", start.elapsed() / 20);
     }
+}
+
+/// Cards a search no longer matches fade out where they stood, and fade back when it's
+/// cleared, rather than popping in and out of existence.
+#[test]
+fn filtered_cards_fade_out_and_back() {
+    let mut ui = Ui::new(&[("Hatch", 0), ("Pong", 0)]);
+    let card = ui.card("Hatch");
+    ui.type_text("zzz");
+    ui.rt.frame(1.0 / 60.0);
+    let fading = ui.leaving(&card).expect("the card animates out");
+    assert!(fading > 0.0 && fading < 1.0, "opacity {fading} on its way out");
+    // Slow enough to see: Rune's default fade is nearly gone (0.14) after 0.1 s.
+    for _ in 0..5 {
+        ui.rt.frame(1.0 / 60.0);
+    }
+    let later = ui.leaving(&card).unwrap_or(0.0);
+    assert!(later > 0.3, "the fade is too quick to see: opacity {later} after 0.1 s");
+    ui.settle();
+    assert!(ui.card_names().is_empty() && ui.leaving(&card).is_none(), "gone once faded");
+    assert_eq!(ui.text("empty-heading"), "No matches");
+
+    ui.key(Key::Escape);
+    ui.rt.frame(1.0 / 60.0);
+    let (_, coming) = ui.presented(&card).expect("the card is back");
+    assert!(coming < 1.0, "it fades back in (opacity {coming})");
+    ui.settle();
+    assert_eq!(ui.presented(&card).unwrap().1, 1.0);
+}
+
+#[test]
+fn search_bar_fades_out() {
+    let mut ui = Ui::new(&[("Hatch", 0)]);
+    ui.type_text("h");
+    ui.settle();
+    ui.key(Key::Escape);
+    ui.rt.frame(1.0 / 60.0);
+    let fading = ui.leaving("search-row").expect("the bar animates out");
+    assert!(fading > 0.0 && fading < 1.0, "opacity {fading} on its way out");
+    for _ in 0..5 {
+        ui.rt.frame(1.0 / 60.0);
+    }
+    let later = ui.leaving("search-row").unwrap_or(0.0);
+    assert!(later > 0.3, "the fade is too quick to see: opacity {later} after 0.1 s");
+    ui.settle();
+    assert!(ui.leaving("search-row").is_none() && ui.find("search-bar").is_none());
+}
+
+#[test]
+fn toast_fades_out() {
+    let mut ui = Ui::new(&[]);
+    ui.rt.update(|s, _| s.set_status("hello"));
+    ui.settle();
+    let mut faded = None;
+    for _ in 0..(TOAST_SECS * 60.0) as usize + 30 {
+        ui.rt.frame(1.0 / 60.0);
+        if let Some(o) = ui.leaving("toast-row") {
+            faded = Some(o);
+            break;
+        }
+    }
+    let o = faded.expect("the toast animates out when it times out");
+    assert!(o > 0.0 && o < 1.0, "opacity {o}");
 }
 
 /// The asterisk mark sits just left of the title, its centre on the middle of the capitals.
