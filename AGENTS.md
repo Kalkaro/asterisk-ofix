@@ -47,8 +47,12 @@ nix develop -c scripts/preview.sh /some/dir
 ```
 
 This renders `library.png`, `library-narrow.png`, `hover.png`, `panel.png`,
-`panel-narrow.png`, `search.png`, `no-matches.png` and `toast.png` headlessly from your real library
-(Rune's `--snap`, with the scenes in `view::SCENES`). Look at them after any UI change.
+`panel-narrow.png`, `search.png`, `no-matches.png` and `toast.png` headlessly (Rune's
+`--snap`, with the scenes in `view::SCENES`) from a made-up demo library:
+`scripts/demo_home.py` builds a throwaway home with eight invented games, generated cover
+art already in the cache, and a fake Steam with one Proton build. Screenshots never show
+the user's real games; add `--real` only to check something against your own library.
+Look at them after any UI change.
 Don't launch the app on the user's desktop to take screenshots. In a sandbox without the
 GPU, add `VK_ICD_FILENAMES=/run/opengl-driver/share/vulkan/icd.d/lvp_icd.x86_64.json`
 (Mesa's software Vulkan).
