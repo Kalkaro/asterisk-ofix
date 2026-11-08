@@ -86,7 +86,10 @@
             };
             cargoLock = {
               lockFile = ./Cargo.lock;
-              allowBuiltinFetchGit = true;
+              # Rune's commit, fetched alone. Without a hash nixpkgs falls back to
+              # builtins.fetchGit with allRefs, which clones every branch and pull request
+              # (160 MB). Update it with the rev in Cargo.toml.
+              outputHashes."rune-0.0.1" = "sha256-sdskmmer1AdrlLLKN4ga7D/W02D01lztof5UloWCwUY=";
             };
             # Tests need a writable HOME and some spawn processes; `nix develop -c cargo test` runs them.
             doCheck = false;

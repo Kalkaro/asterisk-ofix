@@ -165,7 +165,9 @@ installer on the user's machine; check it in CI. Run `shellcheck` and `actionlin
   the fonts, must be added to it. `packaging/` is in it so the package installs the app
   menu entry and icon (`nix flake check` builds `checks.desktop-entry`, which validates it).
 - Rune is pinned to a `dev` rev in Cargo.toml, with the toolchain it pins (rust-toolchain
-  in Rune's repo) in flake.nix. Bump them together. Rune's docs are its
+  in Rune's repo) in flake.nix. Bump them together, and Rune's `outputHashes` hash in
+  flake.nix too (set it to `pkgs.lib.fakeHash`, and `nix build .#default.cargoDeps` prints
+  the right one). Without that hash nixpkgs clones Rune with every branch and pull request. Rune's docs are its
   `crates/rune/README.md` and `crates/rune-kit/README.md`.
 - Games get Steam's environment, which is the user's whole session. Keep secrets out with
   `is_secret_env`: games are untrusted Windows binaries (`secrets_never_reach_the_game`).
