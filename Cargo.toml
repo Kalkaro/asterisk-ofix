@@ -1,0 +1,27 @@
+[package]
+name = "asterisk-ofix"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Launch OnlineFix / SteamFix games through Proton with the Steam overlay"
+
+[dependencies]
+rune = { git = "https://github.com/anomalyco/rune", rev = "3e0cf8fe58d592cdda1ec5533461192edcfcdb47", features = ["native-file-dialog"] }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "3e0cf8fe58d592cdda1ec5533461192edcfcdb47" }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = "3"
+libc = "0.2"
+
+# Dependencies build once, optimised; our own crate stays quick to rebuild.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+debug = false
+
+[profile.release]
+incremental = true
+codegen-units = 16
