@@ -11,7 +11,7 @@ use crate::paths::Paths;
 use crate::testutil::{TempDir, add_game, tempdir};
 use rune::{ElementInfo, Env, Key, KeyEvent, Mods, Runtime};
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 const SIZE: (f32, f32) = (1080.0, 720.0);
@@ -170,9 +170,10 @@ impl Ui {
     }
 }
 
-/// Swaps in a launcher that records what it was asked to start.
+/// Swaps in a launcher that records what it was asked to start, and a stopper that records
+/// what it was asked to stop.
 #[derive(Clone, Default)]
-struct FakeLaunch(Rc<RefCell<(Vec<LaunchSpec>, Option<OnExit>)>>);
+struct FakeLaunch(Rc<RefCell<(Vec<LaunchSpec>, Option<OnExit>)>>, Rc<RefCell<Vec<PathBuf>>>);
 
 impl FakeLaunch {
     fn install(ui: &mut Ui) -> FakeLaunch {
@@ -185,7 +186,21 @@ impl FakeLaunch {
             r.1 = Some(on_exit);
             Ok(PathBuf::from("/nonexistent/fake.log"))
         }));
+        let stops = fake.1.clone();
+        ui.rt.state.stopper = Box::new(move |root: &Path| {
+            stops.borrow_mut().push(root.to_owned());
+            1
+        });
         fake
+    }
+
+    fn stops(&self) -> Vec<PathBuf> {
+        self.1.borrow().clone()
+    }
+
+    /// The game ends as a signal ends it.
+    fn killed(&self) {
+        self.0.borrow_mut().1.take().expect("a running game")(Err("signal: 15 (SIGTERM)".into()))
     }
 
     fn count(&self) -> usize {
@@ -409,6 +424,49 @@ fn hover_play_button_launches_in_one_click() {
     assert_eq!(fl.count(), 1, "the hover play button launches with one click");
     ui.settle();
     assert!(ui.presented(&play).is_none(), "a running game offers no play button");
+}
+
+/// A running game's card shows a Stop button where Play was, always, not just under the
+/// pointer, and the panel's button turns into Stop too.
+#[test]
+fn running_games_can_be_stopped() {
+    let mut ui = Ui::new(&[("Pong", 0)]);
+    let fl = FakeLaunch::install(&mut ui);
+    let card = ui.card("Pong");
+    ui.double_click(&card);
+    assert_eq!(fl.count(), 1);
+    // The pointer leaves the card.
+    let [x, y, w, h] = ui.rect(&format!("{card}/art"));
+    ui.rt.pointer_move(x + w / 2.0, y + h + 150.0);
+    ui.settle();
+
+    let stop = format!("{card}/stop");
+    let ([sx, sy, sw, sh], opacity) = ui.presented(&stop).expect("a running game has a stop button");
+    assert!(opacity > 0.99, "the stop button shows without hovering: {opacity}");
+    assert!(((sx + sw / 2.0) - (x + w / 2.0)).abs() < 0.5 && ((sy + sh / 2.0) - (y + h / 2.0)).abs() < 0.5);
+    assert!(ui.presented(&format!("{card}/play")).is_none(), "no play button while it runs");
+    let dim = ui.presented(&format!("{card}/dim")).map_or(0.0, |(_, o)| o);
+    assert!(dim > 0.99, "the cover is dimmed behind the stop button: {dim}");
+    assert!(ui.find("running").is_some(), "the badge stays");
+
+    ui.click(&stop);
+    assert_eq!(fl.stops(), [ui.game("Pong")]);
+    assert_eq!(ui.toast(), "Stopping Pong");
+    fl.killed();
+    ui.settle();
+    assert_eq!(ui.toast(), "Pong stopped", "stopping isn't reported as a crash");
+    assert!(ui.presented(&stop).is_none() && ui.find("running").is_none());
+
+    // The panel's button plays, then stops.
+    ui.click("panel-play");
+    assert_eq!(fl.count(), 2);
+    ui.settle();
+    ui.click("panel-play");
+    assert_eq!(fl.stops().len(), 2, "the panel's button stops a running game");
+    fl.killed();
+    ui.settle();
+    ui.click("panel-play");
+    assert_eq!(fl.count(), 3, "and plays it again once it's gone");
 }
 
 /// The panel floats over the grid: opening it never moves a card, at any window size, and

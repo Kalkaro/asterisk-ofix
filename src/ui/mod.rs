@@ -11,7 +11,7 @@ mod view;
 use crate::art::{ArtStore, Endpoints, has_art};
 use crate::background::Background;
 use crate::config::{Config, GameSettings};
-use crate::launch::{LaunchSpec, OnExit, build_spec, first_non_empty};
+use crate::launch::{LaunchSpec, OnExit, build_spec, first_non_empty, stop_game};
 use crate::paths::Paths;
 use crate::scan::{Game, game_from_exe, scan_libraries};
 use crate::steam::{self, Proton, Steam};
@@ -29,6 +29,9 @@ pub const MIN_WINDOW: (f32, f32) = (540.0, 420.0);
 
 /// Starts a game, returning its log file. Swapped out in tests.
 pub type Launcher = Box<dyn Fn(&LaunchSpec, OnExit) -> Result<PathBuf, String>>;
+
+/// Stops the game in a folder, returning how many processes it found. Swapped out in tests.
+pub type Stopper = Box<dyn Fn(&Path) -> usize>;
 
 pub struct App {
     pub paths: Paths,
@@ -54,6 +57,8 @@ pub struct App {
     /// The game whose side panel is open.
     pub selected: Option<PathBuf>,
     pub running: HashSet<PathBuf>,
+    /// Running games the user pressed Stop on.
+    pub stopping: HashSet<PathBuf>,
     pub logs: HashMap<PathBuf, PathBuf>,
     pub form: Form,
     /// The open dropdown in the panel.
@@ -64,6 +69,7 @@ pub struct App {
     pub background: Background,
 
     pub launcher: Option<Launcher>,
+    pub stopper: Stopper,
     pub steam_running: fn() -> bool,
 }
 
@@ -120,6 +126,7 @@ impl App {
             search_open: false,
             selected: None,
             running: HashSet::new(),
+            stopping: HashSet::new(),
             logs: HashMap::new(),
             form: Form::default(),
             open_select: None,
@@ -127,6 +134,7 @@ impl App {
             now: 0.0,
             background: Background::new(),
             launcher,
+            stopper: Box::new(stop_game),
             steam_running: steam::steam_running,
             paths,
             steam,
@@ -174,6 +182,8 @@ impl App {
         for (root, name, result) in exits {
             self.running.remove(&root);
             match result {
+                // Killed, so it "failed", but that's what Stop asked for.
+                _ if self.stopping.remove(&root) => self.set_status(format!("{name} stopped")),
                 Ok(()) => self.set_status(format!("{name} exited")),
                 Err(e) => self.set_status(format!("{name} exited: {e}")),
             }
@@ -442,6 +452,20 @@ impl App {
             }
             Err(e) => self.set_status(format!("Launch failed: {e}")),
         }
+    }
+
+    /// Stops the running game at `root`. The badge stays until its processes are gone.
+    pub fn stop(&mut self, root: &Path) {
+        let Some(g) = self.game(root).cloned() else { return };
+        if !self.running.contains(root) {
+            return;
+        }
+        let name = self.display_name(&g);
+        if (self.stopper)(root) == 0 {
+            return self.set_status(format!("{name} is already closing"));
+        }
+        self.stopping.insert(root.to_owned());
+        self.set_status(format!("Stopping {name}"));
     }
 
     pub fn copy_command(&mut self, tx: &mut Tx) {

@@ -348,3 +348,33 @@ fn settings_override_detected_defaults() {
     assert_eq!((spec.proton.name.as_str(), spec.fake_app_id, spec.overrides.as_str()), ("GE-Proton10-4", 1234, "x=n"));
     assert_eq!(spec.exe, root.join("Pong.exe"));
 }
+
+/// Stop finds a game's processes by the marker every launch sets, wherever they run, and
+/// leaves other games alone, even one in a folder whose name starts the same.
+#[test]
+fn stop_ends_only_the_games_processes() {
+    let dir = tempdir();
+    let (game, other) = (dir.path().join("Game"), dir.path().join("Game 2"));
+    let e = game_env(&no_sandbox().command_from(&LaunchSpec { game_dir: game.clone(), ..spec() }, Env::new()).unwrap());
+    assert_eq!(e[GAME_MARKER], game.to_string_lossy(), "launches carry the marker");
+
+    let spawn = |dir: &Path| {
+        std::process::Command::new("sleep").arg("30").env(GAME_MARKER, dir).spawn().expect("sleep")
+    };
+    let (mut mine, mut theirs) = (spawn(&game), spawn(&other));
+    // Until it execs, a child still has our environment.
+    for _ in 0..200 {
+        if game_pids(&game).len() == 1 && game_pids(&other).len() == 1 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(stop_game(&game), 1);
+    let status = mine.wait().unwrap();
+    use std::os::unix::process::ExitStatusExt;
+    assert_eq!(status.signal(), Some(libc::SIGTERM), "{status}");
+    assert!(theirs.try_wait().unwrap().is_none(), "another game was stopped too");
+    let _ = theirs.kill();
+    let _ = theirs.wait();
+    assert_eq!(stop_game(&game), 0, "nothing left to stop");
+}

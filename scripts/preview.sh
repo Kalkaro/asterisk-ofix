@@ -25,6 +25,7 @@ snap panel-narrow --scene panel --size 760x600
 snap search --scene search --size 1080x720
 snap no-matches --scene no-matches --size 1080x720
 snap toast --scene toast --size 1080x720
+snap running --scene running --size 1280x760
 # The pointer over the second card.
 hover=$(mktemp --suffix .json)
 echo '{"events": [{"t": 0.1, "type": "move", "x": 326, "y": 200}]}' >"$hover"

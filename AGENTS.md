@@ -47,7 +47,7 @@ nix develop -c scripts/preview.sh /some/dir
 ```
 
 This renders `library.png`, `library-narrow.png`, `hover.png`, `panel.png`,
-`panel-narrow.png`, `search.png`, `no-matches.png` and `toast.png` headlessly (Rune's
+`panel-narrow.png`, `search.png`, `no-matches.png`, `toast.png` and `running.png` headlessly (Rune's
 `--snap`, with the scenes in `view::SCENES`) from a made-up demo library:
 `scripts/demo_home.py` builds a throwaway home with Pong and Game 1 to 4, covers of white
 shapes on black already in the cache, and a fake Steam with one Proton build. Screenshots never show
@@ -74,7 +74,10 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
 - `src/ui/view.rs`: the view. The starfield, the header, the card grid, the side panel and
   the toast. A single click on a card opens its panel right away. A double click
   (`on_double_press`), or the play button that fades in on hover (`hover_group` +
-  `group_opacity`, no view re-run), starts the game. The panel floats over the grid below
+  `group_opacity`, no view re-run), starts the game. While it runs, a Stop button sits in
+  Play's place, always shown, and the panel's Play turns into Stop. Stop signals every
+  process carrying `GAME_MARKER` (the game's folder, set in its environment at launch),
+  inside Steam's sandbox too (`stop_game`). The panel floats over the grid below
   the header (pinned in `main`); clicking the open game's card again closes it, as does
   Escape. The search is hidden until you type with no text field focused (`App::on_key`),
   then floats over the bottom of the window; Escape, emptying it, or clicking away while

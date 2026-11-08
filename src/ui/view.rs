@@ -69,6 +69,13 @@ pub const SCENES: &[Scene] = &[
         s.search_open = true;
     }),
     ("toast", |s| s.set_status("Launched Pong with Proton 9.0")),
+    // The second game is running, with its panel open.
+    ("running", |s| {
+        if let Some(root) = s.games.get(1).map(|g| g.root.clone()) {
+            s.running.insert(root.clone());
+            s.open_panel(&root)
+        }
+    }),
 ];
 
 pub fn view(s: &App, cx: &mut Cx<App>) -> El {
@@ -289,29 +296,20 @@ fn card(s: &App, g: &Game) -> El {
     if let Some(img) = cover {
         art = art.child(layer().pixels_fit(img.pixels(), SurfaceFit::Fill));
     }
-    // Darkens the art under the pointer, more at the bottom where the name sits.
-    art = art.child(layer().gradient(Color::BLACK.alpha(0.25), Color::BLACK.alpha(0.6)).group_opacity(0.0, 1.0));
-    if !running {
-        let root = root.clone();
-        art = art.child(
-            el().key("play")
-                .absolute((CARD_W - 56.0) / 2.0, (CARD_H - 56.0) / 2.0)
-                .size(56.0, 56.0)
-                .radius(28.0)
-                .fill(PRIMARY)
-                .shadow(6.0, 20.0, Color::BLACK.alpha(0.5))
-                .center()
-                .role("button")
-                .label("Play")
-                .cursor(Cursor::Pointer)
-                .press_scale(0.92)
-                .group_opacity(0.0, 1.0)
-                .on_press(move |s: &mut App| s.play(&root))
-                .child(icon(&PLAY, 22.0).color(BACKGROUND)),
-        );
+    // Darkens the art under the pointer, more at the bottom where the name sits, and always
+    // while the game runs, so the Stop button stands out on light covers.
+    let dim = if running { 1.0 } else { 0.0 };
+    art = art.child(
+        layer().key("dim").gradient(Color::BLACK.alpha(0.25), Color::BLACK.alpha(0.6)).group_opacity(dim, 1.0),
+    );
+    let at = root.clone();
+    art = if !running {
+        // Fades in under the pointer.
+        art.child(cover_button("play", "Play", &PLAY).group_opacity(0.0, 1.0).on_press(move |s: &mut App| s.play(&at)))
     } else {
-        art = art.child(running_badge());
-    }
+        // Always there while the game runs.
+        art.child(running_badge()).child(cover_button("stop", "Stop", &STOP).on_press(move |s: &mut App| s.stop(&at)))
+    };
     // A hairline at rest, a bright ring under the pointer or while the panel is open.
     art = art.child(layer().radius(12.0).border(1.0, Color::WHITE.alpha(0.08))).child(
         layer().radius(12.0).border(2.0, Color::WHITE.alpha(0.8)).group_opacity(if active { 1.0 } else { 0.0 }, 1.0),
@@ -336,6 +334,22 @@ fn card(s: &App, g: &Game) -> El {
         })
         .child(art.mb(8.0))
         .child(text(name).key("name").font(BODY).color(TEXT).truncate().w_full())
+}
+
+/// The round button in the middle of a card's cover.
+fn cover_button(key: &str, label: &str, glyph: &'static rune::Icon) -> El {
+    el().key(key)
+        .absolute((CARD_W - 56.0) / 2.0, (CARD_H - 56.0) / 2.0)
+        .size(56.0, 56.0)
+        .radius(28.0)
+        .fill(PRIMARY)
+        .shadow(6.0, 20.0, Color::BLACK.alpha(0.5))
+        .center()
+        .role("button")
+        .label(label)
+        .cursor(Cursor::Pointer)
+        .press_scale(0.92)
+        .child(icon(glyph, 22.0).color(BACKGROUND))
 }
 
 fn running_badge() -> El {
@@ -440,7 +454,11 @@ fn panel(s: &App, k: &Kit, g: &Game, width: f32, layer: &mut Vec<El>) -> El {
 
     let root = g.root.clone();
     let play = if running {
-        Button::new("Running").variant(ButtonVariant::Neutral).control_size(ControlSize::ExtraLarge).disabled(true)
+        Button::new("Stop")
+            .icon(&STOP)
+            .variant(ButtonVariant::Neutral)
+            .control_size(ControlSize::ExtraLarge)
+            .on_press(move |s: &mut App| s.stop(&root))
     } else {
         Button::new("Play")
             .icon(&PLAY)

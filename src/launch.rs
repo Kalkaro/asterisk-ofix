@@ -28,6 +28,10 @@ pub type Env = Vec<(String, String)>;
 /// Called from a background thread when the game's Proton process ends.
 pub type OnExit = Box<dyn FnOnce(Result<(), String>) + Send>;
 
+/// Set to the game's folder in everything a launch starts. Proton, Wine and the game inherit
+/// it, inside Steam's sandbox too, where they aren't our children: Stop finds them by it.
+pub const GAME_MARKER: &str = "ASTERISK_OFIX_GAME";
+
 /// A launch's argv, knowing which of its arguments are KEY=VALUE pairs passed on from the
 /// session (or Steam's), so printing it never shows their values.
 #[derive(Clone, Debug)]
@@ -145,6 +149,7 @@ impl Steam {
             ("SteamEnv", "1".into()),
             ("ENABLE_VK_LAYER_VALVE_steam_overlay_1", "1".into()),
             ("WINEDLLOVERRIDES", spec.overrides.clone()),
+            (GAME_MARKER, path_str(&spec.game_dir)),
             // FHS paths first: a host NixOS PATH doesn't resolve in the sandbox.
             ("PATH", format!("/usr/bin:/bin:/usr/sbin:/sbin:{host_path}")),
             // The 64-bit overlay library needs libGL from an FHS system, so it is only
@@ -375,6 +380,50 @@ fn without_appimage(env: Env) -> Env {
             }
             let kept: Vec<&str> = v.split(':').filter(|p| !p.is_empty() && !Path::new(p).starts_with(&appdir)).collect();
             (!kept.is_empty()).then(|| (k, kept.join(":")))
+        })
+        .collect()
+}
+
+/// Asks every process of the game in `game_dir` to quit, and kills what's left a few seconds
+/// later. Returns how many processes it found.
+pub fn stop_game(game_dir: &Path) -> usize {
+    let pids = game_pids(game_dir);
+    for &pid in &pids {
+        // SAFETY: kill only sends a signal.
+        unsafe { libc::kill(pid, libc::SIGTERM) };
+    }
+    if !pids.is_empty() {
+        let game_dir = game_dir.to_owned();
+        std::thread::spawn(move || {
+            for _ in 0..20 {
+                std::thread::sleep(std::time::Duration::from_millis(250));
+                if game_pids(&game_dir).is_empty() {
+                    return;
+                }
+            }
+            // Looked up again, so a PID reused since is never hit.
+            for pid in game_pids(&game_dir) {
+                // SAFETY: as above.
+                unsafe { libc::kill(pid, libc::SIGKILL) };
+            }
+        });
+    }
+    pids.len()
+}
+
+/// The processes carrying `GAME_MARKER` for `game_dir`.
+fn game_pids(game_dir: &Path) -> Vec<i32> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut want = format!("{GAME_MARKER}=").into_bytes();
+    want.extend_from_slice(game_dir.as_os_str().as_bytes());
+    let me = std::process::id() as i32;
+    std::fs::read_dir("/proc")
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok()?.file_name().to_str()?.parse::<i32>().ok())
+        .filter(|&pid| pid != me)
+        .filter(|pid| {
+            std::fs::read(format!("/proc/{pid}/environ")).is_ok_and(|env| env.split(|&b| b == 0).any(|kv| kv == want))
         })
         .collect()
 }
