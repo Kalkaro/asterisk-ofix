@@ -264,9 +264,10 @@ fn main(s: &App, k: &Kit, width: f32, layer: &mut Vec<El>) -> El {
         .children(s.current().map(|g| panel(s, k, g, (width - 2.0 * PANEL_MARGIN).min(PANEL_W), layer)))
 }
 
-/// Keys can't hold `/` (it separates a key path), so the folder is slugged.
+/// Keys can't hold `/` (it separates a key path), so the folder is escaped. Escaped, not
+/// slugged: a slug gave "A B" and "A_B" the same key.
 pub fn card_key(root: &Path) -> String {
-    format!("card-{}", crate::launch::slug(&root.to_string_lossy()))
+    format!("card-{}", root.to_string_lossy().replace('%', "%25").replace('/', "%2F"))
 }
 
 fn card(s: &App, g: &Game) -> El {

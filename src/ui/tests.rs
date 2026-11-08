@@ -317,6 +317,22 @@ fn double_click_plays() {
     assert_eq!(ui.toast(), "Pong exited");
 }
 
+/// Folders that differ only in punctuation got the same card key (both slugged to
+/// card-..._A_B), so one card answered for both.
+#[test]
+fn cards_of_similar_folders_are_told_apart() {
+    let mut ui = Ui::new(&[("A B", 0), ("A_B", 0)]);
+    let (a, b) = (ui.card("A B"), ui.card("A_B"));
+    assert_ne!(a, b);
+    assert!(!a.contains('/') && !b.contains('/'), "keys can't hold /");
+    ui.single_click(&b);
+    ui.settle();
+    assert_eq!(ui.rt.state.selected, Some(ui.game("A_B")));
+    ui.single_click(&a);
+    ui.settle();
+    assert_eq!(ui.rt.state.selected, Some(ui.game("A B")));
+}
+
 #[test]
 fn slow_clicks_dont_play() {
     let mut ui = Ui::new(&[("Pong", 0)]);

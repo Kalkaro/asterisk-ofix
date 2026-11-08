@@ -102,8 +102,8 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
 - Rune's `Color` is **linear** sRGB. Palette constants in `theme.rs` are decoded from the
   sRGB hex in the comment beside them; writing `0x12 as f32 / 255.0` makes greys far too
   light.
-- Element keys can't contain `/`: it separates key paths. Card keys slug the folder
-  (`card_key`).
+- Element keys can't contain `/`: it separates key paths. Card keys escape it in the
+  folder's path (`card_key`); a slug gave "A B" and "A_B" one key.
 - A card's middle is its play button. A test that clicks a card's centre after hovering
   it presses Play, so `Ui::click` clicks cards near their corner.
 - Rune snaps what it paints to device pixels, but layout rects stay fractional. Content
