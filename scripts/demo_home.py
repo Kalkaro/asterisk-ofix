@@ -1,5 +1,5 @@
 """Builds a made-up home folder for screenshots: Pong and four placeholder games with covers
-of white shapes on black, a fake Steam install with one Proton build, and the art already in
+of white shapes on black, a fake Steam install with a few Proton builds, and the art already in
 the app's cache so nothing is fetched.
 
     python3 scripts/demo_home.py OUT_DIR
@@ -60,10 +60,24 @@ def main():
     home = sys.argv[1]
     games = os.path.join(home, "Games")
     cache = os.path.join(home, ".cache", "asterisk-ofix", "art")
-    proton = os.path.join(home, ".local", "share", "Steam", "steamapps", "common", "Proton 9.0")
-    for d in (games, cache, proton):
+    steam = os.path.join(home, ".local", "share", "Steam")
+    for d in (games, cache):
         os.makedirs(d, exist_ok=True)
-    open(os.path.join(proton, "proton"), "w").close()
+    # A few Proton builds, long GE names among them, for the Proton menu. Steam's default
+    # stays Proton 9.0.
+    for tool in ("Proton 9.0", "Proton - Experimental", "Proton Hotfix"):
+        os.makedirs(os.path.join(steam, "steamapps", "common", tool), exist_ok=True)
+        open(os.path.join(steam, "steamapps", "common", tool, "proton"), "w").close()
+    for tool in ("GE-Proton10-34", "GE-Proton11-12-x86_64"):
+        d = os.path.join(steam, "compatibilitytools.d", tool)
+        os.makedirs(d, exist_ok=True)
+        open(os.path.join(d, "proton"), "w").close()
+        with open(os.path.join(d, "compatibilitytool.vdf"), "w") as f:
+            f.write(f'"compatibilitytools" {{ "compat_tools" {{ "{tool}" {{ "install_path" "." }} }} }}\n')
+    os.makedirs(os.path.join(steam, "config"), exist_ok=True)
+    with open(os.path.join(steam, "config", "config.vdf"), "w") as f:
+        f.write('"InstallConfigStore" { "Software" { "Valve" { "Steam" { "CompatToolMapping" '
+                '{ "0" { "name" "proton_9" } } } } } }\n')
     for i, name in enumerate(GAMES):
         app_id = FIRST_ID + i
         root = os.path.join(games, name)

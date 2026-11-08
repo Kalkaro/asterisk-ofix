@@ -47,10 +47,11 @@ nix develop -c scripts/preview.sh /some/dir
 ```
 
 This renders `library.png`, `library-narrow.png`, `hover.png`, `page.png`,
-`page-narrow.png`, `options.png`, `search.png`, `no-matches.png`, `toast.png` and `running.png` headlessly (Rune's
+`page-narrow.png`, `options.png`, `proton-menu.png`, `search.png`, `no-matches.png`, `toast.png` and `running.png` headlessly (Rune's
 `--snap`, with the scenes in `view::SCENES`) from a made-up demo library:
 `scripts/demo_home.py` builds a throwaway home with Pong and Game 1 to 4, covers of white
-shapes on black already in the cache, and a fake Steam with one Proton build. Screenshots never show
+shapes on black already in the cache, and a fake Steam with a few Proton builds (Proton 9.0
+its default). Screenshots never show
 the user's real games; add `--real` only to check something against your own library.
 Look at them after any UI change.
 Don't launch the app on the user's desktop to take screenshots. In a sandbox without the
@@ -156,6 +157,9 @@ installer on the user's machine; check it in CI. Run `shellcheck` and `actionlin
 - The game page replaces the grid without unmounting it (`game_page_replaces_the_grid`),
   and is placed from the left edge like the header (`game_page_is_anchored_left_and_fits`).
   Its text column has an even width, or the two fields sharing a line shimmer.
+- The page's dropdowns are `Picker`s: rune-kit's Select field with a menu of our own, under
+  the field's left edge and as wide as it. The kit's menu hangs off the field's right end
+  at 160 points and truncates long Proton names (`picker_menu_lines_up_with_its_field`).
 - A `matched` element in flight draws above the whole window at its own opacity, ignoring
   its ancestors'. So no card in the hidden grid shows its cover while a page is open: a
   cover flying home when another page opened sat on top of it

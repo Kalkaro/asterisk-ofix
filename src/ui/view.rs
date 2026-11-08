@@ -8,7 +8,8 @@ use crate::background::chunked;
 use crate::launch::LaunchSpec;
 use crate::scan::Game;
 use rune::{
-    Color, Cursor, Cx, El, ScrollSpec, Spring, SpringPair, SurfaceFit, Transition, Tx, col, el, icon, row, text,
+    Align, Color, Cursor, Cx, El, ScrollSpec, Side, Spring, SpringPair, SurfaceFit, Transition, Tx, col, el, icon, row,
+    text,
 };
 use rune_kit::{
     Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Kit, Select, SelectAppearance, TextInput,
@@ -74,6 +75,13 @@ pub const SCENES: &[Scene] = &[
         if let Some(root) = s.games.first().map(|g| g.root.clone()) {
             s.open_page(&root);
             s.options_open = true;
+        }
+    }),
+    ("proton-menu", |s| {
+        if let Some(root) = s.games.first().map(|g| g.root.clone()) {
+            s.open_page(&root);
+            s.options_open = true;
+            s.open_select = Some("proton");
         }
     }),
     ("search", |s| {
@@ -624,18 +632,16 @@ fn options_toggle(open: bool) -> El {
 /// The game's settings: Proton, which .exe, and what it starts with.
 fn launch_options(s: &App, k: &Kit, g: &Game, spec: Option<&LaunchSpec>, width: f32, layer: &mut Vec<El>) -> El {
     let settings = s.cfg.settings(&g.root);
-    let proton_names: Vec<&str> = s.protons.iter().map(|p| p.name.as_str()).collect();
-    let proton = Select::new("proton", &proton_names)
-        .label("Proton")
-        .appearance(SelectAppearance::Field)
-        .placeholder("No Proton found")
-        .width(width)
-        .current(spec.map(|s| s.proton.name.as_str()).filter(|n| !n.is_empty()))
-        .open(s.open_select == Some("proton"))
-        .on_toggle(|s: &mut App| s.open_select = if s.open_select == Some("proton") { None } else { Some("proton") })
-        .on_close(|s: &mut App| s.open_select = None)
-        .on_choose(|s: &mut App, v: &str, _: &mut Tx| s.choose_proton(v))
-        .build(k, layer);
+    let protons: Vec<String> = s.protons.iter().map(|p| p.name.clone()).collect();
+    let current_proton = spec.map(|s| s.proton.name.as_str()).filter(|n| !n.is_empty());
+    let proton = Picker { key: "proton", label: "Proton", placeholder: "No Proton found", width }.build(
+        s,
+        k,
+        &protons,
+        current_proton,
+        App::choose_proton,
+        layer,
+    );
 
     let rel = |p: &Path| p.strip_prefix(&g.root).unwrap_or(p).to_string_lossy().into_owned();
     let mut exes: Vec<String> = g.exes.iter().map(|e| rel(e)).collect();
@@ -643,17 +649,8 @@ fn launch_options(s: &App, k: &Kit, g: &Game, spec: Option<&LaunchSpec>, width: 
         exes.push(rel(Path::new(&settings.exe)));
     }
     let current_exe = spec.map(|s| rel(&s.exe));
-    let exe = Select::new("exe", &exes)
-        .label("Executable")
-        .appearance(SelectAppearance::Field)
-        .placeholder("No executable found")
-        .width(width - 84.0)
-        .current(current_exe.as_deref())
-        .open(s.open_select == Some("exe"))
-        .on_toggle(|s: &mut App| s.open_select = if s.open_select == Some("exe") { None } else { Some("exe") })
-        .on_close(|s: &mut App| s.open_select = None)
-        .on_choose(|s: &mut App, v: &str, _: &mut Tx| s.choose_exe(v))
-        .build(k, layer);
+    let exe = Picker { key: "exe", label: "Executable", placeholder: "No executable found", width: width - 84.0 }
+        .build(s, k, &exes, current_exe.as_deref(), App::choose_exe, layer);
 
     let d = s.detected().unwrap_or_default();
     col()
@@ -689,6 +686,102 @@ fn launch_options(s: &App, k: &Kit, g: &Game, spec: Option<&LaunchSpec>, width: 
         .child(input(k, "overrides", "DLL overrides", &s.form.overrides, &d.overrides, |s| &mut s.form.overrides))
         .child(input(k, "env", "Environment", &s.form.env, "KEY=value …", |s| &mut s.form.env))
         .child(input(k, "prefix", "Wine prefix", &s.form.prefix, &d.prefix.to_string_lossy(), |s| &mut s.form.prefix))
+}
+
+/// A dropdown field: the kit's Select field, opening a menu of our own under its left edge
+/// and as wide as it. The kit's menu hung off the field's right end, 160 points wide, and cut
+/// long names short (`picker_menu_lines_up_with_its_field`).
+struct Picker {
+    key: &'static str,
+    label: &'static str,
+    placeholder: &'static str,
+    width: f32,
+}
+
+impl Picker {
+    /// The menu shows six and a half rows at most, so a longer list reads as one that scrolls.
+    const ROW_H: f32 = 32.0;
+    const MAX_H: f32 = 4.0 + 6.5 * (Self::ROW_H + 2.0);
+
+    fn build(
+        self,
+        s: &App,
+        k: &Kit,
+        options: &[String],
+        current: Option<&str>,
+        choose: fn(&mut App, &str),
+        layer: &mut Vec<El>,
+    ) -> El {
+        let key = self.key;
+        let open = s.open_select == Some(key);
+        let field = Select::new(key, options)
+            .label(self.label)
+            .appearance(SelectAppearance::Field)
+            .placeholder(self.placeholder)
+            .width(self.width)
+            .current(current)
+            .open(open)
+            .on_toggle(move |s: &mut App| s.open_select = if s.open_select == Some(key) { None } else { Some(key) })
+            .trigger(k);
+        if !open {
+            return field;
+        }
+        let rows = options.iter().enumerate().map(|(i, option)| {
+            let chosen = current == Some(option.as_str());
+            let value = option.clone();
+            row()
+                .key(format!("{key}-option{i}"))
+                .role("option")
+                .label(option.clone())
+                .focusable(true)
+                .focus_selected(chosen)
+                .focus_highlight(Color::WHITE.alpha(0.07))
+                .cursor(Cursor::Pointer)
+                .h(Self::ROW_H)
+                // The menu's 2 and these 6 put the names under the field's own text.
+                .pl(6.0)
+                .pr(8.0)
+                .gap(8.0)
+                .center_y()
+                .radius(6.0)
+                .on_press(move |s: &mut App| choose(s, &value))
+                .child(text(option.clone()).font(BODY).color(TEXT).truncate().grow(1.0).shrink())
+                .child(icon(k.glyph.check_small, 14.0).color(TEXT).opacity(if chosen { 1.0 } else { 0.0 }))
+        });
+        // Pressing anywhere else closes it, as Escape does (`App::on_key`).
+        layer.push(rune_kit::scrim(format!("{key}-scrim"), |s: &mut App| s.open_select = None));
+        layer.push(
+            col()
+                .key(format!("{key}-menu"))
+                .w(self.width)
+                .min_h(0.0)
+                .padding(2.0)
+                .radius(10.0)
+                .fill(RAISED)
+                .border(1.0, Color::WHITE.alpha(0.08))
+                .shadow(10.0, 30.0, Color::BLACK.alpha(0.6))
+                .clip_rounded(10.0)
+                .anchored_fit(format!("{key}-trigger"), Side::Bottom, Align::Start, 4.0)
+                .focus_return(format!("{key}-trigger"))
+                .transition(Transition::offset(0.0, -4.0).combined(Transition::opacity()).springs(FADE))
+                .child(
+                    col()
+                        .key(format!("{key}-options"))
+                        .role("listbox")
+                        .label(self.label)
+                        .focus_group()
+                        .w_full()
+                        .max_h(Self::MAX_H)
+                        .min_h(0.0)
+                        .shrink()
+                        .gap(2.0)
+                        .children(rows)
+                        .scroll(ScrollSpec { stick_bottom: false })
+                        .scroll_edge_fade(12.0),
+                ),
+        );
+        field
+    }
 }
 
 /// 1 for an odd width. Content centred in a box of even width keeps the same sub-pixel

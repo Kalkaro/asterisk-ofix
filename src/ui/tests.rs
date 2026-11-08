@@ -701,6 +701,50 @@ fn choosing_the_default_proton_saves_nothing() {
     assert!(!Config::load(&ui.paths()).games.contains_key(&root));
 }
 
+/// The kit's dropdown menu hung off the right end of its field, 160 points wide, and cut
+/// long Proton names short. The menu sits under the field's left edge, as wide as the field.
+#[test]
+fn picker_menu_lines_up_with_its_field() {
+    let mut ui = Ui::new(&[("Pong", 0)]);
+    let root = ui.game("Pong");
+    let names = ["GE-Proton11-12-x86_64", "GE-Proton10-34", "Proton - Experimental", "Proton 9.0"];
+    let open = root.clone();
+    ui.rt.update(move |s, _| {
+        s.protons =
+            names.map(|n| crate::steam::Proton { name: n.into(), dir: "/p".into(), runtime: None }).to_vec();
+        s.default_proton = "Proton 9.0".into();
+        s.open_page(&open);
+        s.options_open = true;
+    });
+    ui.settle();
+    ui.click("proton-trigger");
+    ui.settle();
+    let [fx, fy, fw, fh] = ui.rect("proton-trigger");
+    let [mx, my, mw, _] = ui.rect("proton-menu");
+    assert_eq!((mx, mw), (fx, fw), "the menu lines up with its field");
+    assert!(my >= fy + fh && my - (fy + fh) <= 6.0, "the menu hangs just under the field: {my}");
+    let [ox, _, ow, _] = ui.rect("proton-option0");
+    assert!(ox >= mx && ox + ow <= mx + mw && ow > fw - 10.0, "an option spans the menu: {ox} + {ow}");
+
+    ui.click("proton-option0");
+    ui.settle();
+    assert!(ui.find("proton-menu").is_none(), "choosing closes the menu");
+    assert_eq!(Config::load(&ui.paths()).settings(&root).proton, "GE-Proton11-12-x86_64");
+
+    // Pressing outside or Escape closes it too.
+    ui.click("proton-trigger");
+    ui.settle();
+    ui.click("proton-scrim");
+    ui.settle();
+    assert!(ui.find("proton-menu").is_none() && ui.rt.state.open_select.is_none());
+    ui.click("proton-trigger");
+    ui.settle();
+    ui.key(Key::Escape);
+    ui.settle();
+    assert!(ui.find("proton-menu").is_none(), "Escape closes it");
+    assert!(ui.find("page").is_some(), "and leaves the page open");
+}
+
 /// Cards keep one size while the window resizes; only the column count changes. Stretching
 /// them made a live resize jitter.
 #[test]
