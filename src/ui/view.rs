@@ -162,6 +162,10 @@ fn search_bar(s: &App, k: &Kit, window_w: f32) -> El {
         .plain()
         .width(None)
         .text_style(SEARCH)
+        // Rune applies a field's edits with no animation, and with them whatever they change:
+        // cards a keystroke filters out vanished, and so did the bar when Backspace emptied
+        // it. This keeps the typed text immediate and animates the rest.
+        .animate_edit_layout()
         .on_edit(|s: &mut App| &mut s.search)
         // The field would take Escape to drop its focus; here it closes the search.
         .on_key(|s: &mut App, ev: &rune::KeyEvent, _: &mut Tx| {

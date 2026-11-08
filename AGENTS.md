@@ -123,6 +123,11 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
   springs, and the element that's actually removed carries the transition: a transition
   on a child of a removed row never runs (`filtered_cards_fade_out_and_back`,
   `search_bar_fades_out`).
+- A text field's edits are applied with no animation, and so is everything they change,
+  unless the field has `animate_edit_layout()`. The search field has it, or cards a
+  keystroke filters out (and the bar, when Backspace empties it) vanish. Tests have to type
+  into the focused field to see this: the first key reaches `App::on_key`, the rest the
+  field.
 - A focused text field takes Escape to drop its focus, so a field that should close on
   Escape handles it in its own `on_key` (the search bar does).
 - Cards are fixed-size (`CARD_W`) and only reflow in a wrapping row. Stretching them made

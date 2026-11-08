@@ -373,10 +373,8 @@ mod tests {
 
         // A second load comes from the cache: with the store unreachable it still completes.
         // (Counting the fake store's connections instead raced with the first load's.)
-        let offline = Endpoints {
-            store_api: "http://127.0.0.1:9/api".into(),
-            asset_base: "http://127.0.0.1:9/assets/".into(),
-        };
+        let offline =
+            Endpoints { store_api: "http://127.0.0.1:9/api".into(), asset_base: "http://127.0.0.1:9/assets/".into() };
         assert_eq!(load(&offline).get(1000001).name, "Sky Ride");
     }
 

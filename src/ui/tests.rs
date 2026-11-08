@@ -679,7 +679,12 @@ fn perf() {
 fn filtered_cards_fade_out_and_back() {
     let mut ui = Ui::new(&[("Hatch", 0), ("Pong", 0)]);
     let card = ui.card("Hatch");
-    ui.type_text("zzz");
+    // As a person types: "h" opens the bar, and the next keys go into the focused field,
+    // whose edits Rune applies without animation unless the field opts in.
+    ui.type_text("h");
+    ui.settle();
+    assert!(ui.rt.state.search.focused);
+    ui.type_text("z");
     ui.rt.frame(1.0 / 60.0);
     let fading = ui.leaving(&card).expect("the card animates out");
     assert!(fading > 0.0 && fading < 1.0, "opacity {fading} on its way out");
@@ -703,18 +708,25 @@ fn filtered_cards_fade_out_and_back() {
 
 #[test]
 fn search_bar_fades_out() {
+    for close in ["escape", "backspace"] {
+        search_bar_fades_out_on(close);
+    }
+}
+
+fn search_bar_fades_out_on(close: &str) {
     let mut ui = Ui::new(&[("Hatch", 0)]);
     ui.type_text("h");
     ui.settle();
-    ui.key(Key::Escape);
+    // Backspace empties the field from inside it, an edit Rune would apply instantly.
+    ui.key(if close == "escape" { Key::Escape } else { Key::Backspace });
     ui.rt.frame(1.0 / 60.0);
-    let fading = ui.leaving("search-row").expect("the bar animates out");
-    assert!(fading > 0.0 && fading < 1.0, "opacity {fading} on its way out");
+    let fading = ui.leaving("search-row").unwrap_or_else(|| panic!("the bar animates out on {close}"));
+    assert!(fading > 0.0 && fading < 1.0, "{close}: opacity {fading} on its way out");
     for _ in 0..5 {
         ui.rt.frame(1.0 / 60.0);
     }
     let later = ui.leaving("search-row").unwrap_or(0.0);
-    assert!(later > 0.3, "the fade is too quick to see: opacity {later} after 0.1 s");
+    assert!(later > 0.3, "{close}: the fade is too quick to see: opacity {later} after 0.1 s");
     ui.settle();
     assert!(ui.leaving("search-row").is_none() && ui.find("search-bar").is_none());
 }
