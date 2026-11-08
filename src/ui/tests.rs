@@ -2,8 +2,8 @@
 //! virtual clock. Nothing here touches the real machine: each test gets its own temp HOME,
 //! a fake Steam store, and a fake launcher instead of Proton.
 
-use super::view::{self, CARD_W, PANEL_MARGIN, card_key};
-use super::{App, MIN_WINDOW, TOAST_SECS};
+use super::view::{self, CARD_W, COVER_W, COVER_W_NARROW, GUTTER, card_key};
+use super::{App, DOUBLE_CLICK, MIN_WINDOW, TOAST_SECS};
 use crate::art::fake;
 use crate::config::Config;
 use crate::launch::{LaunchSpec, OnExit};
@@ -217,7 +217,7 @@ fn library_shows_sorted_cards() {
     let ui = Ui::new(&[("Charlie", 0), ("alpha", 0), ("Bravo", 0)]);
     assert_eq!(ui.card_names(), ["alpha", "Bravo", "Charlie"]);
     assert_eq!(ui.text("count"), "3");
-    assert!(ui.find("panel").is_none() && ui.find("empty").is_none(), "only the library shows");
+    assert!(ui.find("page").is_none() && ui.find("empty").is_none(), "only the library shows");
 }
 
 #[test]
@@ -293,7 +293,10 @@ fn search_bar_floats_at_the_bottom() {
 fn typing_in_a_field_doesnt_open_search() {
     let mut ui = Ui::new(&[("Pong", 0)]);
     let root = ui.game("Pong");
-    ui.rt.update(move |s, _| s.open_panel(&root));
+    ui.rt.update(move |s, _| {
+        s.open_page(&root);
+        s.options_open = true;
+    });
     ui.settle();
     ui.click("args");
     ui.type_text("-w");
@@ -318,10 +321,12 @@ fn double_click_plays() {
     ui.double_click(&card);
     assert_eq!(fl.count(), 1);
     assert_eq!(fl.0.borrow().0[0].exe, ui.game("Pong").join("Pong.exe"));
-    assert_eq!(ui.rt.state.selected, Some(ui.game("Pong")), "the first click opened the panel");
+    assert_eq!(ui.rt.state.selected, Some(ui.game("Pong")), "the first click opened the page");
     ui.settle();
-    assert!(ui.find("running").is_some(), "the card shows the running badge");
+    assert!(ui.find("running").is_some(), "the running badge shows");
 
+    ui.key(Key::Escape);
+    ui.settle();
     ui.double_click(&card);
     assert_eq!(fl.count(), 1, "a running game isn't started again");
     assert!(ui.toast().contains("already running"), "toast: {:?}", ui.toast());
@@ -343,6 +348,7 @@ fn cards_of_similar_folders_are_told_apart() {
     ui.single_click(&b);
     ui.settle();
     assert_eq!(ui.rt.state.selected, Some(ui.game("A_B")));
+    ui.key(Key::Escape);
     ui.single_click(&a);
     ui.settle();
     assert_eq!(ui.rt.state.selected, Some(ui.game("A B")));
@@ -367,39 +373,164 @@ fn double_click_without_steam_says_so() {
 }
 
 #[test]
-fn single_click_opens_the_side_panel() {
+fn single_click_opens_the_game_page() {
     let mut ui = Ui::new(&[("Pong", 0), ("Hatch", 0)]);
     let fl = FakeLaunch::install(&mut ui);
     let (a, b) = (ui.card("Pong"), ui.card("Hatch"));
 
     ui.single_click(&a);
     ui.settle();
-    assert!(ui.find("panel").is_some(), "a click opens the side panel");
+    assert!(ui.find("page").is_some(), "a click opens the game's page");
     assert_eq!(fl.count(), 0, "a single click doesn't launch");
     assert_eq!(ui.text("title"), "Pong");
     assert!(ui.text("meta").contains("Pong.exe"), "meta: {}", ui.text("meta"));
 
+    ui.key(Key::Escape);
+    ui.settle();
+    assert!(ui.find("page").is_none() && ui.rt.state.selected.is_none(), "Escape goes back to the library");
+
     ui.single_click(&b);
     ui.settle();
-    assert_eq!(ui.text("title"), "Hatch", "another card switches the panel");
-    ui.single_click(&b);
+    assert_eq!(ui.text("title"), "Hatch");
+    ui.click("page-play");
+    assert_eq!(fl.count(), 1, "the page's Play button launches");
+    ui.click("back");
     ui.settle();
-    assert!(ui.find("panel").is_none() && ui.rt.state.selected.is_none(), "clicking the open game closes it");
-    ui.single_click(&b);
+    assert!(ui.find("page").is_none(), "the Back button goes back to the library");
+}
+
+/// The page takes the grid's place: the grid stays mounted underneath, hidden and inert, so
+/// it comes back as it was, and the page sits under the header, inside the window.
+#[test]
+fn game_page_replaces_the_grid() {
+    let names: Vec<String> = (0..24).map(|i| format!("Game {i:02}")).collect();
+    let games: Vec<(&str, u32)> = names.iter().map(|n| (n.as_str(), 0)).collect();
+    let mut ui = Ui::new(&games);
+    // Scroll the grid down a little.
+    let first = ui.card("Game 00");
+    let top = ui.rect(&first)[1];
+    ui.rt.wheel(SIZE.0 / 2.0, SIZE.1 / 2.0, -200.0);
     ui.settle();
-    assert_eq!(ui.rt.state.selected, Some(ui.game("Hatch")), "and clicking again opens it");
+    let scrolled = ui.cards();
+    assert_ne!(ui.rect(&first)[1], top, "the wheel scrolls the grid");
+
+    ui.single_click(&ui.card("Game 05"));
+    ui.settle();
+    let grid = ui.find("grid-scroll").unwrap();
+    assert!(grid.opacity < 0.01 && grid.inert, "the grid hides under the page: {grid:?}");
+    let [px, py, pw, ph] = ui.rect("page");
+    let [_, hy, _, hh] = ui.rect("add-game");
+    assert!(hy + hh <= py, "the page covers the header");
+    assert!(px >= 0.0 && px + pw <= SIZE.0 && py + ph <= SIZE.1, "the page leaves the window");
 
     ui.key(Key::Escape);
     ui.settle();
-    assert!(ui.find("panel").is_none() && ui.rt.state.selected.is_none(), "Escape closes the panel");
+    assert_eq!(ui.cards(), scrolled, "the grid comes back scrolled where it was");
+    let grid = ui.find("grid-scroll").unwrap();
+    assert!(grid.opacity > 0.99 && !grid.inert);
+}
 
-    ui.single_click(&a);
+/// Just after a click opens a page the grid still takes presses, so the second click of a
+/// double click reaches the card. Then the page takes over.
+#[test]
+fn page_takes_presses_once_a_double_click_cant_happen() {
+    let mut ui = Ui::new(&[("Pong", 0)]);
+    ui.single_click(&ui.card("Pong"));
+    assert!(ui.find("page").unwrap().inert && !ui.find("grid-scroll").unwrap().inert);
+    for _ in 0..(DOUBLE_CLICK * 60.0) as usize + 2 {
+        ui.rt.frame(1.0 / 60.0);
+    }
+    assert!(!ui.find("page").unwrap().inert, "the page takes presses once the interval is over");
+    assert!(ui.find("grid-scroll").unwrap().inert);
+}
+
+/// The cover flies from the card to the page, and back when the page closes.
+#[test]
+fn cover_flies_between_card_and_page() {
+    let mut ui = Ui::new(&[("Pong", 0)]);
+    let card = ui.card("Pong");
+    let from = ui.rect(&format!("{card}/art"));
+    ui.single_click(&card);
+    for _ in 0..3 {
+        ui.rt.frame(1.0 / 60.0);
+    }
+    let mid = ui.rect("cover");
     ui.settle();
-    ui.click("panel-play");
-    assert_eq!(fl.count(), 1, "the panel's Play button launches");
-    ui.click("close");
+    let to = ui.rect("cover");
+    assert_eq!(to[2], COVER_W);
+    for i in 0..4 {
+        let (lo, hi) = (from[i].min(to[i]), from[i].max(to[i]));
+        assert!(mid[i] > lo && mid[i] < hi || from[i] == to[i], "mid-flight {mid:?} isn't between {from:?} and {to:?}");
+    }
+    assert!(ui.find("art").is_none(), "the card's cover is away on the page");
+
+    ui.key(Key::Escape);
     ui.settle();
-    assert!(ui.find("panel").is_none(), "the close button closes the panel");
+    assert_eq!(ui.rect(&format!("{card}/art")), from, "and lands back on the card");
+}
+
+#[test]
+fn launch_options_start_collapsed() {
+    let mut ui = Ui::new(&[("Pong", 0)]);
+    let root = ui.game("Pong");
+    ui.rt.update(move |s, _| s.open_page(&root));
+    ui.settle();
+    assert!(ui.find("options").is_none() && ui.find("args").is_none(), "options are tucked away");
+    ui.click("options-toggle");
+    ui.settle();
+    assert!(ui.rt.state.options_open, "the toggle opens them");
+    assert!(ui.find("options").is_some() && ui.find("args").is_some(), "the toggle shows them");
+    ui.click("options-toggle");
+    ui.settle();
+    assert!(ui.find("options").is_none(), "and hides them again");
+}
+
+/// Typing searches the library, so on a game's page it goes back to the grid.
+#[test]
+fn typing_on_a_page_searches_the_library() {
+    let mut ui = Ui::new(&[("Pong", 0), ("Hatch", 0)]);
+    ui.single_click(&ui.card("Pong"));
+    ui.settle();
+    ui.type_text("h");
+    ui.settle();
+    assert!(ui.find("page").is_none() && ui.rt.state.selected.is_none());
+    assert_eq!(ui.card_names(), ["Hatch"]);
+    assert!(!ui.find("grid-scroll").unwrap().inert);
+}
+
+/// The page is placed from the left edge: its parts don't move sideways as the window's width
+/// changes (but for the cover's one step down in narrow windows), and nothing leaves it.
+#[test]
+fn game_page_is_anchored_left_and_fits() {
+    let mut ui = Ui::new(&[("A Game With A Really Long Name That Goes On", 0)]);
+    let root = ui.game("A Game With A Really Long Name That Goes On");
+    ui.rt.update(move |s, _| {
+        s.open_page(&root);
+        s.options_open = true;
+    });
+    let keys = ["back", "cover", "title", "page-play"];
+    for (from, to) in [(1300.0, 820.0), (819.0, MIN_WINDOW.0)] {
+        ui.resize(from, 700.0);
+        // Across only: a title that wraps onto more lines moves what's under it down.
+        let at: Vec<_> = keys.iter().map(|k| ui.rect(k)[0]).collect();
+        let mut w = from;
+        while w >= to {
+            ui.rt.set_viewport((w, 700.0), 1.0);
+            ui.rt.frame(1.0 / 60.0);
+            for (k, x) in keys.iter().zip(&at) {
+                assert_eq!(ui.rect(k)[0], *x, "width {w}: {k} moved with the window's right edge");
+            }
+            let ([_, py, _, ph], [_, cy, _, ch]) = (ui.rect("page-play"), ui.rect("copy-command"));
+            assert_eq!(py + ph / 2.0, cy + ch / 2.0, "width {w}: the actions wrapped onto a second line");
+            for k in ["title", "actions", "options", "prefix", "copy-command"] {
+                let [x, _, bw, _] = ui.rect(k);
+                assert!(x + bw <= w - GUTTER + 0.5, "width {w}: {k} ends at {}", x + bw);
+            }
+            w -= 13.0;
+        }
+        let want = if from > 820.0 { COVER_W } else { COVER_W_NARROW };
+        assert_eq!(ui.rect("cover")[2], want);
+    }
 }
 
 #[test]
@@ -427,7 +558,7 @@ fn hover_play_button_launches_in_one_click() {
 }
 
 /// A running game's card shows a Stop button where Play was, always, not just under the
-/// pointer, and the panel's button turns into Stop too.
+/// pointer, and the page's button turns into Stop too.
 #[test]
 fn running_games_can_be_stopped() {
     let mut ui = Ui::new(&[("Pong", 0)]);
@@ -435,6 +566,8 @@ fn running_games_can_be_stopped() {
     let card = ui.card("Pong");
     ui.double_click(&card);
     assert_eq!(fl.count(), 1);
+    ui.key(Key::Escape);
+    ui.settle();
     // The pointer leaves the card.
     let [x, y, w, h] = ui.rect(&format!("{card}/art"));
     ui.rt.pointer_move(x + w / 2.0, y + h + 150.0);
@@ -457,37 +590,18 @@ fn running_games_can_be_stopped() {
     assert_eq!(ui.toast(), "Pong stopped", "stopping isn't reported as a crash");
     assert!(ui.presented(&stop).is_none() && ui.find("running").is_none());
 
-    // The panel's button plays, then stops.
-    ui.click("panel-play");
+    // The page's button plays, then stops.
+    ui.single_click(&card);
+    ui.settle();
+    ui.click("page-play");
     assert_eq!(fl.count(), 2);
     ui.settle();
-    ui.click("panel-play");
-    assert_eq!(fl.stops().len(), 2, "the panel's button stops a running game");
+    ui.click("page-play");
+    assert_eq!(fl.stops().len(), 2, "the page's button stops a running game");
     fl.killed();
     ui.settle();
-    ui.click("panel-play");
+    ui.click("page-play");
     assert_eq!(fl.count(), 3, "and plays it again once it's gone");
-}
-
-/// The panel floats over the grid: opening it never moves a card, at any window size, and
-/// it never covers the header.
-#[test]
-fn panel_floats_over_the_grid() {
-    let mut ui = Ui::new(&[("A1", 0), ("A2", 0), ("A3", 0), ("A4", 0), ("A5", 0)]);
-    for w in [640.0, 900.0, 1300.0] {
-        ui.resize(w, 700.0);
-        let before = ui.cards();
-        let root = ui.game("A1");
-        ui.rt.update(move |s, _| s.open_panel(&root));
-        ui.settle();
-        assert_eq!(ui.cards(), before, "width {w}: a card moved when the panel opened");
-        let [px, py, pw, _] = ui.rect("panel");
-        assert!((px + pw - (w - PANEL_MARGIN)).abs() < 0.5, "width {w}: the panel ends at {}", px + pw);
-        let [_, hy, _, hh] = ui.rect("add-game");
-        assert!(hy + hh <= py, "width {w}: the panel covers the header");
-        ui.rt.update(|s, _| s.close_panel());
-        ui.settle();
-    }
 }
 
 #[test]
@@ -510,7 +624,10 @@ fn editing_saves_settings() {
     let mut ui = Ui::new(&[("Pong", 0)]);
     let root = ui.game("Pong");
     let open = root.clone();
-    ui.rt.update(move |s, _| s.open_panel(&open));
+    ui.rt.update(move |s, _| {
+        s.open_page(&open);
+        s.options_open = true;
+    });
     ui.settle();
 
     ui.click("args");
@@ -533,7 +650,7 @@ fn choosing_the_default_proton_saves_nothing() {
         s.default_proton = "Proton 9.0".into();
     });
     let open = root.clone();
-    ui.rt.update(move |s, _| s.open_panel(&open));
+    ui.rt.update(move |s, _| s.open_page(&open));
     ui.rt.update(|s, _| s.choose_proton("GE-Proton10-4"));
     assert_eq!(Config::load(&ui.paths()).settings(&root).proton, "GE-Proton10-4");
     ui.rt.update(|s, _| s.choose_proton("Proton 9.0"));
@@ -546,10 +663,11 @@ fn choosing_the_default_proton_saves_nothing() {
 fn cards_keep_their_size_while_resizing() {
     let names = ["A1", "A2", "A3", "A4", "A5", "A6", "A7"].map(|n| (n, 0));
     let mut ui = Ui::new(&names);
-    for with_panel in [false, true] {
-        if with_panel {
+    // The grid under an open page too: it comes back as it was.
+    for with_page in [false, true] {
+        if with_page {
             let root = ui.game("A1");
-            ui.rt.update(move |s, _| s.open_panel(&root));
+            ui.rt.update(move |s, _| s.open_page(&root));
         }
         let mut prev_cols = 0;
         let mut w = 560.0;
@@ -568,7 +686,7 @@ fn cards_keep_their_size_while_resizing() {
             prev_cols = cols.len();
             w += 37.0;
         }
-        assert_eq!(prev_cols, 7, "panel={with_panel}: a wide window fits all 7 cards in a row");
+        assert_eq!(prev_cols, 7, "page={with_page}: a wide window fits all 7 cards in a row");
     }
 }
 
@@ -614,10 +732,16 @@ fn header_is_anchored_left() {
 fn nothing_shimmers_while_resizing() {
     let mut ui = Ui::new(&[("Sky Ride", 0), ("Quiet Games Night", 0), ("Robot Party", 0), ("Hatch", 0)]);
     let root = ui.game("Hatch");
-    ui.rt.update(move |s, _| s.open_panel(&root));
+    ui.rt.update(move |s, _| {
+        s.open_page(&root);
+        s.options_open = true;
+    });
     check_no_shimmer(&mut ui);
     // The centred empty state too.
-    ui.rt.update(|s, _| s.search = rune::TextEdit::new("zzzz"));
+    ui.rt.update(|s, _| {
+        s.close_page();
+        s.search = rune::TextEdit::new("zzzz");
+    });
     check_no_shimmer(&mut ui);
 }
 
@@ -656,10 +780,13 @@ fn steam_artwork_and_names_arrive() {
     assert_eq!(images.hero.as_ref().unwrap().wait().unwrap()[0], 1920, "heroes are shrunk to 1920 wide");
 
     let root = ui.game("Aardvark");
-    ui.rt.update(move |s, _| s.open_panel(&root));
+    ui.rt.update(move |s, _| s.open_page(&root));
     ui.settle();
     assert_eq!(ui.text("title"), "Zebra Party");
-    assert!(ui.find("hero-art").is_some(), "the panel shows the hero");
+    assert!(ui.find("hero-art").is_some(), "the page shows the hero");
+    let order: Vec<_> = ui.elements().into_iter().filter_map(|e| e.key).collect();
+    let pos = |k: &str| order.iter().position(|x| x == k).unwrap();
+    assert!(pos("backdrop") < pos("hero") && pos("hero") < pos("content"), "the hero sits behind the UI");
 }
 
 /// The starfield is blurred a little, behind the UI, which stays sharp. It's laid out in
@@ -691,7 +818,7 @@ fn losing_focus_pauses_the_backdrop() {
 }
 
 #[test]
-fn a_hand_picked_exe_opens_its_panel() {
+fn a_hand_picked_exe_opens_its_page() {
     let mut ui = Ui::new(&[]);
     let exe = ui.home.path().join("Elsewhere/Tool/Tool.exe");
     crate::testutil::write(&exe, "x");
@@ -717,7 +844,7 @@ fn a_hand_picked_exe_from_a_known_game_becomes_its_executable() {
         ui.rt.update(move |s, _| s.add_manual_exe(picked));
         ui.settle();
         assert_eq!(ui.card_names(), ["Pong"], "{}: no second card", exe.display());
-        assert_eq!(ui.rt.state.selected.as_deref(), Some(root.as_path()), "its panel opens");
+        assert_eq!(ui.rt.state.selected.as_deref(), Some(root.as_path()), "its page opens");
         let g = ui.rt.state.current().unwrap().clone();
         assert_eq!(ui.rt.state.spec_for(&g).unwrap().exe, exe, "and it starts the picked exe");
         assert!(Config::load(&ui.paths()).manual_exes.is_empty(), "it isn't a game of its own");
@@ -772,7 +899,7 @@ fn perf() {
     let games: Vec<(&str, u32)> = names.iter().map(|n| (n.as_str(), 0)).collect();
     let mut ui = Ui::new(&games);
     let root = ui.game("Game 0");
-    ui.rt.update(move |s, _| s.open_panel(&root));
+    ui.rt.update(move |s, _| s.open_page(&root));
     ui.settle();
     let start = std::time::Instant::now();
     for i in 0..200 {

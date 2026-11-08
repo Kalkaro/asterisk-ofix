@@ -1,10 +1,11 @@
-//! Drawing `App`: the starfield, the header, the card grid, the floating side panel for the
-//! open game, and the status toast.
+//! Drawing `App`: the starfield, the header, the card grid, the page for the open game, and
+//! the status toast.
 
 use super::theme::{self, *};
 use super::{App, Images};
 use crate::art::has_art;
 use crate::background::chunked;
+use crate::launch::LaunchSpec;
 use crate::scan::Game;
 use rune::{
     Color, Cursor, Cx, El, ScrollSpec, Spring, SpringPair, SurfaceFit, Transition, Tx, col, el, icon, row, text,
@@ -19,9 +20,18 @@ pub const CARD_W: f32 = 184.0;
 pub const CARD_H: f32 = CARD_W * 1.5;
 pub const GAP: f32 = 22.0;
 pub const GUTTER: f32 = 28.0;
-pub const PANEL_W: f32 = 380.0;
-pub const PANEL_MARGIN: f32 = 12.0;
-const HERO_H: f32 = 210.0;
+/// A game page's cover, and below `PAGE_WIDE` window width the smaller one. Both 2:3, as
+/// the cards' covers are, so a cover flying between the two keeps its shape.
+pub const COVER_W: f32 = 240.0;
+pub const COVER_W_NARROW: f32 = 152.0;
+const PAGE_WIDE: f32 = 820.0;
+const PAGE_GAP: f32 = 32.0;
+/// The page's text column stops growing here, so lines stay readable.
+const INFO_MAX: f32 = 560.0;
+/// Below this the page's Folder, Log and Copy command buttons drop their labels.
+const NARROW_INFO: f32 = 520.0;
+/// Steam heroes are 1920x620.
+const HERO_ASPECT: f32 = 1920.0 / 620.0;
 /// Softens the starfield (Gaussian sigma, points). The UI above stays sharp.
 pub const BG_BLUR: f32 = 0.8;
 /// Header buttons drop their labels below this window width.
@@ -51,13 +61,19 @@ pub fn asterisk_drop(mark: f32, title: f32) -> f32 {
 const SEARCH_H: f32 = 52.0;
 const SEARCH_BOTTOM: f32 = 28.0;
 
-/// Named states for headless snapshots (`--snap out.png --scene panel`).
+/// Named states for headless snapshots (`--snap out.png --scene page`).
 type Scene = (&'static str, fn(&mut App));
 
 pub const SCENES: &[Scene] = &[
-    ("panel", |s| {
+    ("page", |s| {
         if let Some(root) = s.games.first().map(|g| g.root.clone()) {
-            s.open_panel(&root)
+            s.open_page(&root)
+        }
+    }),
+    ("options", |s| {
+        if let Some(root) = s.games.first().map(|g| g.root.clone()) {
+            s.open_page(&root);
+            s.options_open = true;
         }
     }),
     ("search", |s| {
@@ -69,11 +85,11 @@ pub const SCENES: &[Scene] = &[
         s.search_open = true;
     }),
     ("toast", |s| s.set_status("Launched Pong with Proton 9.0")),
-    // The second game is running, with its panel open.
+    // The second game is running, with its page open.
     ("running", |s| {
         if let Some(root) = s.games.get(1).map(|g| g.root.clone()) {
             s.running.insert(root.clone());
-            s.open_panel(&root)
+            s.open_page(&root)
         }
     }),
 ];
@@ -101,6 +117,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
                 .blur(BG_BLUR)
                 .inert(),
         )
+        .children(s.current().and_then(|g| hero(s, g, backdrop[0])))
         .child(content)
         .children(s.search_open.then(|| search_bar(s, &k, size[0])))
         .children(s.toast.as_ref().map(|t| toast(&t.text, t.seq, size[0], s.search_open)));
@@ -234,15 +251,45 @@ fn search_bar(s: &App, k: &Kit, window_w: f32) -> El {
         )
 }
 
-/// The grid, with the side panel floating over its right edge.
+/// The open game's hero art, faint behind the header and the top of its page, fading into
+/// the starfield. Sized with the backdrop's chunks and pinned top-left, so a live resize rarely
+/// moves it.
+fn hero(s: &App, g: &Game, width: f32) -> Option<El> {
+    let img = s.images.get(&g.real_id).and_then(|i| i.hero.as_ref())?;
+    let h = (width / HERO_ASPECT).round();
+    Some(
+        el().key("hero")
+            .absolute(0.0, 0.0)
+            .size(width, h)
+            .inert()
+            .clip_fade_linear(0.0, 0.0, 0.0, (h * 0.7).round())
+            .transition(Transition::opacity().springs(FADE))
+            .child(
+                el().key("hero-art")
+                    .absolute(0.0, 0.0)
+                    .size(width, h)
+                    .pixels_fit(img.pixels(), SurfaceFit::Fill)
+                    .opacity(0.3)
+                    .blur(2.0),
+            ),
+    )
+}
+
+/// The grid, or the open game's page in its place. The grid stays mounted under the page,
+/// hidden, so it comes back scrolled where it was.
 fn main(s: &App, k: &Kit, width: f32, layer: &mut Vec<El>) -> El {
     let visible = s.visible();
+    let page = s.current();
+    // Just after a click on a card opens its page, a second click still goes to the card.
+    let opening = page.is_some() && s.now < s.opening_until;
     // The grid stays mounted while a search narrows it, so cards that stop matching fade
     // out in place (and come back the same way) rather than vanishing with it.
-    let grid = col()
+    let mut grid = col()
         .key("grid-scroll")
         .w_full()
         .h_full()
+        .opacity(if page.is_some() { 0.0 } else { 1.0 })
+        .opacity_motion(Spring::new(0.3, 0.0))
         .child(
             row()
                 .key("grid")
@@ -256,19 +303,19 @@ fn main(s: &App, k: &Kit, width: f32, layer: &mut Vec<El>) -> El {
         )
         .scroll(ScrollSpec { stick_bottom: false })
         .scroll_edge_fade(18.0);
+    if page.is_some() && !opening {
+        grid = grid.inert();
+    }
     let empty = visible.is_empty().then(|| {
         empty(s, k)
             .absolute(0.0, 0.0)
             .pr(odd(width))
             .transition(Transition::opacity().combined(Transition::offset(0.0, 8.0)).springs(FADE))
     });
-    el().key("main")
-        .w_full()
-        .grow(1.0)
-        .min_h(0.0)
-        .child(grid)
-        .children(empty)
-        .children(s.current().map(|g| panel(s, k, g, (width - 2.0 * PANEL_MARGIN).min(PANEL_W), layer)))
+    el().key("main").w_full().grow(1.0).min_h(0.0).child(grid).children(empty).children(page.map(|g| {
+        let p = game_page(s, k, g, width, layer);
+        if opening { p.inert() } else { p }
+    }))
 }
 
 /// Keys can't hold `/` (it separates a key path), so the folder is escaped. Escaped, not
@@ -277,45 +324,58 @@ pub fn card_key(root: &Path) -> String {
     format!("card-{}", root.to_string_lossy().replace('%', "%25").replace('/', "%2F"))
 }
 
+/// A game's cover flies between its card and its page.
+fn cover_id(root: &Path) -> String {
+    format!("cover-{}", card_key(root))
+}
+
 fn card(s: &App, g: &Game) -> El {
     let name = s.display_name(g);
     let root = g.root.clone();
-    let active = s.selected.as_deref() == Some(g.root.as_path());
+    let open = s.selected.as_deref() == Some(g.root.as_path());
     let running = s.running.contains(&g.root);
     let cover = s.images.get(&g.real_id).and_then(|i: &Images| i.cover.as_ref());
     let layer = || el().absolute(0.0, 0.0).size(CARD_W, CARD_H);
 
-    let mut art = el()
-        .key("art")
-        .size(CARD_W, CARD_H)
-        .radius(12.0)
-        .fill(tile_color(&name))
-        .clip_rounded(12.0)
-        .center()
-        .child(text(initials(&name)).font(MONOGRAM).color(TEXT.alpha(0.75)));
-    if let Some(img) = cover {
-        art = art.child(layer().pixels_fit(img.pixels(), SurfaceFit::Fill));
-    }
-    // Darkens the art under the pointer, more at the bottom where the name sits, and always
-    // while the game runs, so the Stop button stands out on light covers.
-    let dim = if running { 1.0 } else { 0.0 };
-    art = art.child(
-        layer().key("dim").gradient(Color::BLACK.alpha(0.25), Color::BLACK.alpha(0.6)).group_opacity(dim, 1.0),
-    );
-    let at = root.clone();
-    art = if !running {
-        // Fades in under the pointer.
-        art.child(cover_button("play", "Play", &PLAY).group_opacity(0.0, 1.0).on_press(move |s: &mut App| s.play(&at)))
+    let art = if open {
+        // The cover is on the page; it flies back here when the page closes.
+        el().key("art-away").size(CARD_W, CARD_H)
     } else {
-        // Always there while the game runs.
-        art.child(running_badge()).child(cover_button("stop", "Stop", &STOP).on_press(move |s: &mut App| s.stop(&at)))
+        let mut art = el()
+            .key("art")
+            .size(CARD_W, CARD_H)
+            .radius(12.0)
+            .fill(tile_color(&name))
+            .clip_rounded(12.0)
+            .matched(cover_id(&g.root))
+            .center()
+            .child(text(initials(&name)).font(MONOGRAM).color(TEXT.alpha(0.75)));
+        if let Some(img) = cover {
+            art = art.child(layer().pixels_fit(img.pixels(), SurfaceFit::Fill));
+        }
+        // Darkens the art under the pointer, more at the bottom where the name sits, and
+        // always while the game runs, so the Stop button stands out on light covers.
+        let dim = if running { 1.0 } else { 0.0 };
+        art = art.child(
+            layer().key("dim").gradient(Color::BLACK.alpha(0.25), Color::BLACK.alpha(0.6)).group_opacity(dim, 1.0),
+        );
+        let at = root.clone();
+        art = if !running {
+            // Fades in under the pointer.
+            art.child(
+                cover_button("play", "Play", &PLAY).group_opacity(0.0, 1.0).on_press(move |s: &mut App| s.play(&at)),
+            )
+        } else {
+            // Always there while the game runs.
+            art.child(running_badge())
+                .child(cover_button("stop", "Stop", &STOP).on_press(move |s: &mut App| s.stop(&at)))
+        };
+        // A hairline at rest, a bright ring under the pointer.
+        art.child(layer().radius(12.0).border(1.0, Color::WHITE.alpha(0.08)))
+            .child(layer().radius(12.0).border(2.0, Color::WHITE.alpha(0.8)).group_opacity(0.0, 1.0))
     };
-    // A hairline at rest, a bright ring under the pointer or while the panel is open.
-    art = art.child(layer().radius(12.0).border(1.0, Color::WHITE.alpha(0.08))).child(
-        layer().radius(12.0).border(2.0, Color::WHITE.alpha(0.8)).group_opacity(if active { 1.0 } else { 0.0 }, 1.0),
-    );
 
-    let open = root.clone();
+    let at = root.clone();
     col()
         .key(card_key(&g.root))
         .transition(Transition::opacity().combined(Transition::scale(0.94)).springs(FADE))
@@ -326,12 +386,8 @@ fn card(s: &App, g: &Game) -> El {
         .hover_group()
         .cursor(Cursor::Pointer)
         .press_scale(0.97)
-        .on_press(move |s: &mut App| s.toggle_panel(&open))
-        // The second click of a double click toggled the panel shut; it stays open.
-        .on_double_press(move |s: &mut App| {
-            s.open_panel(&root);
-            s.play(&root);
-        })
+        .on_press(move |s: &mut App| s.open_from_card(&at))
+        .on_double_press(move |s: &mut App| s.play(&root))
         .child(art.mb(8.0))
         .child(text(name).key("name").font(BODY).color(TEXT).truncate().w_full())
 }
@@ -408,49 +464,48 @@ fn empty(s: &App, k: &Kit) -> El {
     c
 }
 
-/// One game's banner, Play button and launch options, floating over the grid's right edge.
-fn panel(s: &App, k: &Kit, g: &Game, width: f32, layer: &mut Vec<El>) -> El {
+/// One game, in the grid's place: its cover, name, Play and launch options. Everything is
+/// placed from the left edge, so nothing trails a live resize.
+fn game_page(s: &App, k: &Kit, g: &Game, width: f32, layer: &mut Vec<El>) -> El {
     let name = s.display_name(g);
-    let settings = s.cfg.settings(&g.root);
     let spec = s.spec_for(g).ok();
-    let detected = s.detected();
     let running = s.running.contains(&g.root);
-    let inner = width - 40.0;
+    let cover_w = if width >= PAGE_WIDE { COVER_W } else { COVER_W_NARROW };
+    // Even, so the two fields that share a line get whole-point widths and don't shimmer.
+    let info_w = ((width - 2.0 * GUTTER - cover_w - PAGE_GAP).clamp(0.0, INFO_MAX) / 2.0).floor() * 2.0;
+
+    let mut cover = el()
+        .key("cover")
+        .size(cover_w, cover_w * 1.5)
+        .radius(14.0)
+        .fill(tile_color(&name))
+        .clip_rounded(14.0)
+        .matched(cover_id(&g.root))
+        .shadow(12.0, 40.0, Color::BLACK.alpha(0.6))
+        .center()
+        .child(text(initials(&name)).font(MONOGRAM).color(TEXT.alpha(0.75)));
+    if let Some(img) = s.images.get(&g.real_id).and_then(|i| i.cover.as_ref()) {
+        cover = cover
+            .child(el().absolute(0.0, 0.0).size(cover_w, cover_w * 1.5).pixels_fit(img.pixels(), SurfaceFit::Fill));
+    }
+    cover = cover
+        .child(el().absolute(0.0, 0.0).size(cover_w, cover_w * 1.5).radius(14.0).border(1.0, Color::WHITE.alpha(0.08)));
+    if running {
+        cover = cover.child(running_badge());
+    }
 
     let mut meta = Vec::new();
     if has_art(g.real_id) {
         meta.push(format!("Steam app {}", g.real_id));
     }
-    if let Some(exe) = spec.as_ref().and_then(|s| s.exe.file_name()) {
-        meta.push(exe.to_string_lossy().into_owned());
+    if let Some(spec) = &spec {
+        if let Some(exe) = spec.exe.file_name() {
+            meta.push(exe.to_string_lossy().into_owned());
+        }
+        if !spec.proton.name.is_empty() {
+            meta.push(spec.proton.name.clone());
+        }
     }
-
-    let mut hero = el().key("hero").w_full().h(HERO_H).fill(tile_color(&name).mix(Color::WHITE, 0.04));
-    if let Some(img) = s.images.get(&g.real_id).and_then(|i| i.hero.as_ref()) {
-        hero = hero.child(
-            el().key("hero-art").absolute(0.0, 0.0).size(width, HERO_H).pixels_fit(img.pixels(), SurfaceFit::Fill),
-        );
-    }
-    hero = hero
-        .child(el().absolute(0.0, 0.0).size(width, HERO_H).gradient(SIDEBAR.alpha(0.0), SIDEBAR))
-        .child(
-            el().pin(None, Some(12.0), Some(12.0), None).radius(9.0).fill(Color::BLACK.alpha(0.55)).child(
-                IconButton::new(k.glyph.close)
-                    .label("Close")
-                    .help("Close (Esc)")
-                    .variant(IconButtonVariant::Ghost)
-                    .on_press(App::close_panel)
-                    .build(k)
-                    .key("close"),
-            ),
-        )
-        .child(
-            col()
-                .pin(Some(20.0), None, Some(20.0), Some(14.0))
-                .gap(2.0)
-                .child(text(name).key("title").font(PAGE_TITLE).color(TEXT).wrap())
-                .child(text(meta.join("  ·  ")).key("meta").font(CAPTION).color(MUTED).wrap()),
-        );
 
     let root = g.root.clone();
     let play = if running {
@@ -466,14 +521,112 @@ fn panel(s: &App, k: &Kit, g: &Game, width: f32, layer: &mut Vec<El>) -> El {
             .control_size(ControlSize::ExtraLarge)
             .on_press(move |s: &mut App| s.play(&root))
     };
+    let actions = row()
+        .key("actions")
+        .w_full()
+        .flex_wrap()
+        .gaps(4.0, 8.0)
+        .center_y()
+        .child(el().w(160.0).mr(8.0).child(play.build(k).key("page-play").w_full()))
+        .children(page_actions(k, info_w < NARROW_INFO));
 
+    let info = col()
+        .key("info")
+        .w(info_w)
+        .gap(6.0)
+        .child(text(name).key("title").font(GAME_TITLE).color(TEXT).wrap())
+        .child(text(meta.join("  ·  ")).key("meta").font(BODY).color(MUTED).wrap())
+        .child(actions.mt(20.0))
+        .child(el().w_full().h(1.0).fill(BORDER).mt(22.0).mb(4.0))
+        .child(options_toggle(s.options_open))
+        .children(s.options_open.then(|| launch_options(s, k, g, spec.as_ref(), info_w, layer)));
+
+    col()
+        .key("page")
+        .absolute(0.0, 0.0)
+        .w_full()
+        .h_full()
+        .transition(Transition::offset(0.0, 10.0).combined(Transition::opacity()).springs(FADE))
+        .child(
+            col()
+                .key("page-scroll")
+                .w_full()
+                .h_full()
+                .child(
+                    col()
+                        .w_full()
+                        .px(GUTTER)
+                        .pb(GUTTER)
+                        .gap(14.0)
+                        .child(
+                            el().self_start().ml(-10.0).child(
+                                Button::new("Back")
+                                    .icon(&BACK)
+                                    .variant(ButtonVariant::Ghost)
+                                    .help("Back to the library (Esc)")
+                                    .on_press(App::close_page)
+                                    .build(k)
+                                    .key("back"),
+                            ),
+                        )
+                        .child(row().items_start().gap(PAGE_GAP).child(cover).child(info)),
+                )
+                .scroll(ScrollSpec { stick_bottom: false })
+                .scroll_edge_fade(18.0),
+        )
+}
+
+/// Folder, Log and Copy command; just their icons in a narrow column.
+fn page_actions(k: &Kit, compact: bool) -> [El; 3] {
+    let action = |key: &str, label: &'static str, glyph: &'static rune::Icon, f: fn(&mut App, &mut Tx)| {
+        if compact {
+            IconButton::new(glyph).label(label).help(label).variant(IconButtonVariant::Ghost).on_press_tx(f).build(k)
+        } else {
+            ghost(k, label, glyph, f)
+        }
+        .key(key)
+    };
+    [
+        action("folder", "Folder", &FOLDER, |s, _| {
+            if let Some(root) = s.selected.clone() {
+                s.open_path(&root)
+            }
+        }),
+        action("log", "Log", &DOCUMENT, |s, _| s.open_log()),
+        action("copy-command", "Copy command", k.glyph.copy, App::copy_command),
+    ]
+}
+
+/// "Launch options", with a caret that turns as they open.
+fn options_toggle(open: bool) -> El {
+    row()
+        .key("options-toggle")
+        .gap(8.0)
+        .center_y()
+        .py(8.0)
+        .self_start()
+        .role("button")
+        .label("Launch options")
+        .cursor(Cursor::Pointer)
+        .on_press(App::toggle_options)
+        .child(icon(&CARET, 16.0).key("caret").color(MUTED).rotate(if open {
+            std::f32::consts::FRAC_PI_2
+        } else {
+            0.0
+        }))
+        .child(text("Launch options").font(SUBHEADING).color(TEXT))
+}
+
+/// The game's settings: Proton, which .exe, and what it starts with.
+fn launch_options(s: &App, k: &Kit, g: &Game, spec: Option<&LaunchSpec>, width: f32, layer: &mut Vec<El>) -> El {
+    let settings = s.cfg.settings(&g.root);
     let proton_names: Vec<&str> = s.protons.iter().map(|p| p.name.as_str()).collect();
     let proton = Select::new("proton", &proton_names)
         .label("Proton")
         .appearance(SelectAppearance::Field)
         .placeholder("No Proton found")
-        .width(inner)
-        .current(spec.as_ref().map(|s| s.proton.name.as_str()).filter(|n| !n.is_empty()))
+        .width(width)
+        .current(spec.map(|s| s.proton.name.as_str()).filter(|n| !n.is_empty()))
         .open(s.open_select == Some("proton"))
         .on_toggle(|s: &mut App| s.open_select = if s.open_select == Some("proton") { None } else { Some("proton") })
         .on_close(|s: &mut App| s.open_select = None)
@@ -485,12 +638,12 @@ fn panel(s: &App, k: &Kit, g: &Game, width: f32, layer: &mut Vec<El>) -> El {
     if !settings.exe.is_empty() && !g.exes.iter().any(|e| e.as_os_str() == settings.exe.as_str()) {
         exes.push(rel(Path::new(&settings.exe)));
     }
-    let current_exe = spec.as_ref().map(|s| rel(&s.exe));
+    let current_exe = spec.map(|s| rel(&s.exe));
     let exe = Select::new("exe", &exes)
         .label("Executable")
         .appearance(SelectAppearance::Field)
         .placeholder("No executable found")
-        .width(inner - 84.0)
+        .width(width - 84.0)
         .current(current_exe.as_deref())
         .open(s.open_select == Some("exe"))
         .on_toggle(|s: &mut App| s.open_select = if s.open_select == Some("exe") { None } else { Some("exe") })
@@ -498,23 +651,15 @@ fn panel(s: &App, k: &Kit, g: &Game, width: f32, layer: &mut Vec<El>) -> El {
         .on_choose(|s: &mut App, v: &str, _: &mut Tx| s.choose_exe(v))
         .build(k, layer);
 
-    let d = detected.unwrap_or_default();
-    let fields = col()
+    let d = s.detected().unwrap_or_default();
+    col()
         .key("options")
         .w_full()
-        .px(20.0)
         .pt(6.0)
-        .pb(18.0)
         .gap(14.0)
-        .child(play.build(k).key("panel-play").w_full())
+        .transition(Transition::offset(0.0, -6.0).combined(Transition::opacity()).springs(FADE))
+        .child(text("Empty fields use the detected defaults.").font(CAPTION).color(MUTED).mt(-10.0))
         .child(field("Proton", proton))
-        .child(
-            col()
-                .mt(8.0)
-                .gap(2.0)
-                .child(text("Launch options").font(SUBHEADING).color(TEXT))
-                .child(text("Empty fields use the detected defaults.").font(CAPTION).color(MUTED)),
-        )
         .child(field(
             "Executable",
             row().gap(8.0).center_y().child(exe).child(
@@ -540,40 +685,6 @@ fn panel(s: &App, k: &Kit, g: &Game, width: f32, layer: &mut Vec<El>) -> El {
         .child(input(k, "overrides", "DLL overrides", &s.form.overrides, &d.overrides, |s| &mut s.form.overrides))
         .child(input(k, "env", "Environment", &s.form.env, "KEY=value …", |s| &mut s.form.env))
         .child(input(k, "prefix", "Wine prefix", &s.form.prefix, &d.prefix.to_string_lossy(), |s| &mut s.form.prefix))
-        .child(el().w_full().h(1.0).fill(BORDER).mt(4.0))
-        .child(
-            row()
-                .w_full()
-                .gap(4.0)
-                .center_y()
-                .child(ghost(k, "Folder", &FOLDER, |s, _| {
-                    if let Some(root) = s.selected.clone() {
-                        s.open_path(&root)
-                    }
-                }))
-                .child(ghost(k, "Log", &DOCUMENT, |s, _| s.open_log()))
-                .child(el().grow(1.0))
-                .child(ghost(k, "Copy command", k.glyph.copy, App::copy_command)),
-        );
-
-    col()
-        .key("panel")
-        .pin(None, Some(0.0), Some(PANEL_MARGIN), Some(PANEL_MARGIN))
-        .w(width)
-        .fill(SIDEBAR)
-        .radius(16.0)
-        .border(1.0, BORDER)
-        .shadow(18.0, 48.0, Color::BLACK.alpha(0.7))
-        .clip_rounded(16.0)
-        .transition(Transition::offset(28.0, 0.0).combined(Transition::opacity()))
-        .child(
-            col()
-                .key("panel-scroll")
-                .w_full()
-                .h_full()
-                .child(col().w_full().child(hero).child(fields))
-                .scroll(ScrollSpec { stick_bottom: false }),
-        )
 }
 
 /// 1 for an odd width. Content centred in a box of even width keeps the same sub-pixel

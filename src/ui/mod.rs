@@ -1,4 +1,4 @@
-//! The window: the game library, the side panel for one game, and status toasts.
+//! The window: the game library, a page for one game, and status toasts.
 //!
 //! `App` holds all state; `view.rs` draws it. Work that finishes on other threads (artwork,
 //! games exiting) lands in `Inbox` and is picked up by `poll` on the UI thread.
@@ -26,6 +26,8 @@ pub const TOAST_SECS: f64 = 4.0;
 pub const WINDOW: (f32, f32) = (1080.0, 720.0);
 /// Under 600 so Hyprland can tile the window narrow without Rune drawing it cropped.
 pub const MIN_WINDOW: (f32, f32) = (540.0, 420.0);
+/// Rune's double-click interval off macOS and Windows, in seconds.
+pub const DOUBLE_CLICK: f64 = 0.5;
 
 /// Starts a game, returning its log file. Swapped out in tests.
 pub type Launcher = Box<dyn Fn(&LaunchSpec, OnExit) -> Result<PathBuf, String>>;
@@ -54,14 +56,19 @@ pub struct App {
     pub search: TextEdit,
     /// The floating search bar shows; it opens when you start typing.
     pub search_open: bool,
-    /// The game whose side panel is open.
+    /// The game whose page is open, in place of the grid.
     pub selected: Option<PathBuf>,
+    /// A page opened by a click on a card leaves the grid under the pointer until then, so the
+    /// second click of a double click still reaches the card.
+    pub opening_until: f64,
+    /// The page's launch options are expanded.
+    pub options_open: bool,
     pub running: HashSet<PathBuf>,
     /// Running games the user pressed Stop on.
     pub stopping: HashSet<PathBuf>,
     pub logs: HashMap<PathBuf, PathBuf>,
     pub form: Form,
-    /// The open dropdown in the panel.
+    /// The open dropdown on the page.
     pub open_select: Option<&'static str>,
     pub toast: Option<Toast>,
     /// Seconds since start, as of the last frame.
@@ -79,7 +86,7 @@ pub struct Images {
     pub hero: Option<Image>,
 }
 
-/// The side panel's text fields.
+/// The page's text fields.
 #[derive(Default)]
 pub struct Form {
     pub fake_id: TextEdit,
@@ -125,6 +132,8 @@ impl App {
             search: TextEdit::default(),
             search_open: false,
             selected: None,
+            opening_until: 0.0,
+            options_open: false,
             running: HashSet::new(),
             stopping: HashSet::new(),
             logs: HashMap::new(),
@@ -193,6 +202,10 @@ impl App {
             self.close_search();
             changed = true;
         }
+        if self.opening_until > 0.0 && now >= self.opening_until {
+            self.opening_until = 0.0;
+            changed = true;
+        }
         if self.toast.as_ref().is_some_and(|t| now >= t.until) {
             self.toast = None;
             changed = true;
@@ -205,14 +218,17 @@ impl App {
         match &ev.key {
             Key::Escape if self.search_open => self.close_search(),
             Key::Escape if self.open_select.is_some() => self.open_select = None,
-            Key::Escape if self.selected.is_some() => self.close_panel(),
+            Key::Escape if self.selected.is_some() => self.close_page(),
             Key::Command('f') => {
+                // Search goes through the library, so it leaves the page.
+                self.close_page();
                 self.search_open = true;
                 self.search.focused = true;
                 tx.select_all_text("search");
             }
             // Typing anywhere that isn't a text field starts a search with what was typed.
             Key::Text(t) if plain && t.chars().any(|c| !c.is_whitespace() && !c.is_control()) => {
+                self.close_page();
                 if !self.search_open {
                     self.search = TextEdit::new("");
                     self.search_open = true;
@@ -333,12 +349,16 @@ impl App {
         build_spec(&self.paths, g, &s, &self.protons, &self.default_proton).ok()
     }
 
-    /// A click on a card: opens its panel, or closes it if it's the one open.
-    pub fn toggle_panel(&mut self, root: &Path) {
-        if self.selected.as_deref() == Some(root) { self.close_panel() } else { self.open_panel(root) }
+    /// A click on a card opens its page. The grid keeps taking presses for a moment, so a
+    /// second click makes a double click on the card and plays it.
+    pub fn open_from_card(&mut self, root: &Path) {
+        if self.selected.is_none() {
+            self.opening_until = self.now + DOUBLE_CLICK;
+        }
+        self.open_page(root);
     }
 
-    pub fn open_panel(&mut self, root: &Path) {
+    pub fn open_page(&mut self, root: &Path) {
         if self.selected.as_deref() != Some(root) {
             self.selected = Some(root.to_path_buf());
             self.open_select = None;
@@ -346,12 +366,18 @@ impl App {
         }
     }
 
-    pub fn close_panel(&mut self) {
+    pub fn close_page(&mut self) {
         self.selected = None;
+        self.open_select = None;
+        self.opening_until = 0.0;
+    }
+
+    pub fn toggle_options(&mut self) {
+        self.options_open = !self.options_open;
         self.open_select = None;
     }
 
-    /// Fills the panel's fields from the open game's saved settings.
+    /// Fills the page's fields from the open game's saved settings.
     fn load_form(&mut self) {
         let s = self.current().map(|g| self.cfg.settings(&g.root)).unwrap_or_default();
         let fake = if s.fake_app_id == 0 { String::new() } else { s.fake_app_id.to_string() };
@@ -377,7 +403,7 @@ impl App {
         self.save();
     }
 
-    /// Saves what's typed into the panel's fields.
+    /// Saves what's typed into the page's fields.
     pub fn save_form(&mut self) {
         let form = [&self.form.fake_id, &self.form.args, &self.form.overrides, &self.form.env, &self.form.prefix]
             .map(|e| e.text.trim().to_owned());
@@ -506,7 +532,7 @@ impl App {
         let owner = self.games.iter().filter(|g| exe.starts_with(&g.root)).max_by_key(|g| g.root.components().count());
         if let Some(root) = owner.map(|g| g.root.clone()) {
             self.close_search();
-            self.open_panel(&root);
+            self.open_page(&root);
             self.use_exe(&exe);
             return;
         }
@@ -517,7 +543,7 @@ impl App {
         self.close_search();
         self.rescan();
         if let Some(root) = self.games.iter().find(|g| g.exes.first() == Some(&exe)).map(|g| g.root.clone()) {
-            self.open_panel(&root);
+            self.open_page(&root);
         }
     }
 
@@ -570,12 +596,11 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Toasts schedule their own end; `poll` runs then.
+/// Toasts and a page's opening moment schedule their own end; `poll` runs then.
 fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
-    if let Some(t) = &s.toast
-        && t.until > now
-    {
-        tx.wake_after(Duration::from_secs_f64(t.until - now));
+    let ends = [s.toast.as_ref().map_or(0.0, |t| t.until), s.opening_until];
+    if let Some(end) = ends.into_iter().filter(|&end| end > now).reduce(f64::min) {
+        tx.wake_after(Duration::from_secs_f64(end - now));
     }
     s.poll(now, tx)
 }

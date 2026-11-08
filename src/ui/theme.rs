@@ -10,7 +10,6 @@ const fn lin(r: f32, g: f32, b: f32) -> Color {
 
 // Neutral greys on pure black, white for the primary action, no blue anywhere.
 pub const BACKGROUND: Color = Color::BLACK;
-pub const SIDEBAR: Color = lin(0.00605, 0.00605, 0.00750) /* #121215 */;
 pub const RAISED: Color = lin(0.01370, 0.01370, 0.01764) /* #1f1f24 */;
 pub const BORDER: Color = lin(0.01938, 0.01938, 0.02519) /* #26262c */;
 pub const TEXT: Color = lin(0.83880, 0.83880, 0.86316) /* #ececef */;
@@ -38,6 +37,8 @@ pub const SEARCH: TextStyle = TextStyle::new(16.0, 400.0).lh(22.0);
 /// capitals, on the title's line height so the header keeps its height.
 pub const LOGO: TextStyle = TextStyle::new(40.0, 600.0).lh(28.0);
 pub const PAGE_TITLE: TextStyle = TextStyle::new(22.0, 600.0).lh(28.0);
+/// A game's name on its page.
+pub const GAME_TITLE: TextStyle = TextStyle::new(34.0, 600.0).lh(40.0);
 pub const MONOGRAM: TextStyle = TextStyle::new(34.0, 600.0).lh(40.0);
 
 /// The rune-kit theme: its controls in the palette above.
@@ -89,6 +90,8 @@ macro_rules! icons {
 
 icons! {
     PLAY = r#"<path d="M5 3.2v9.6a.6.6 0 0 0 .9.5l7.6-4.8a.6.6 0 0 0 0-1L5.9 2.7a.6.6 0 0 0-.9.5Z" fill="currentColor"/>"#;
+    BACK = r#"<path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>"#;
+    CARET = r#"<path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>"#;
     STOP = r#"<rect x="4" y="4" width="8" height="8" rx="1.4" fill="currentColor"/>"#;
     REFRESH = r#"<path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>"#;
     PLUS = r#"<path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>"#;

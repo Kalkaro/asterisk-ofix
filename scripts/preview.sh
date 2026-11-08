@@ -20,8 +20,9 @@ snap() { "$bin" --snap "$out/$1.png" "${@:2}" >/dev/null; }
 
 snap library --size 1080x720
 snap library-narrow --size 600x600
-snap panel --scene panel --size 1280x760
-snap panel-narrow --scene panel --size 760x600
+snap page --scene page --size 1280x760
+snap page-narrow --scene page --size 600x600
+snap options --scene options --size 1080x720
 snap search --scene search --size 1080x720
 snap no-matches --scene no-matches --size 1080x720
 snap toast --scene toast --size 1080x720

@@ -46,8 +46,8 @@ into one commit, and don't commit half-done work. Don't push unless asked.
 nix develop -c scripts/preview.sh /some/dir
 ```
 
-This renders `library.png`, `library-narrow.png`, `hover.png`, `panel.png`,
-`panel-narrow.png`, `search.png`, `no-matches.png`, `toast.png` and `running.png` headlessly (Rune's
+This renders `library.png`, `library-narrow.png`, `hover.png`, `page.png`,
+`page-narrow.png`, `options.png`, `search.png`, `no-matches.png`, `toast.png` and `running.png` headlessly (Rune's
 `--snap`, with the scenes in `view::SCENES`) from a made-up demo library:
 `scripts/demo_home.py` builds a throwaway home with Pong and Game 1 to 4, covers of white
 shapes on black already in the cache, and a fake Steam with one Proton build. Screenshots never show
@@ -68,18 +68,22 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
 
 ## Layout
 
-- `src/ui/mod.rs`: `App`, all UI state and actions (scan, sort, search, open the panel,
+- `src/ui/mod.rs`: `App`, all UI state and actions (scan, sort, search, open a game's page,
   edit and save settings, play, toasts, file pickers). Work finished on other threads
   (artwork, games exiting) goes into an inbox that `poll` drains on the UI thread.
-- `src/ui/view.rs`: the view. The starfield, the header, the card grid, the side panel and
-  the toast. A single click on a card opens its panel right away. A double click
-  (`on_double_press`), or the play button that fades in on hover (`hover_group` +
-  `group_opacity`, no view re-run), starts the game. While it runs, a Stop button sits in
-  Play's place, always shown, and the panel's Play turns into Stop. Stop signals every
-  process carrying `GAME_MARKER` (the game's folder, set in its environment at launch),
-  inside Steam's sandbox too (`stop_game`). The panel floats over the grid below
-  the header (pinned in `main`); clicking the open game's card again closes it, as does
-  Escape. The search is hidden until you type with no text field focused (`App::on_key`),
+- `src/ui/view.rs`: the view. The starfield, the header, the card grid, the game page and
+  the toast. A single click on a card opens the game's page right away, in the grid's
+  place: its cover (which flies there from the card, `matched`), name, Play, Folder, Log,
+  Copy command, and the launch options, collapsed until asked for. The game's hero art
+  sits faint behind it, fading into the stars. The grid stays mounted under the page,
+  hidden and inert, so it comes back scrolled where it was; Back or Escape goes back, and
+  typing a search does too. A double click (`on_double_press`), or the play button that
+  fades in on hover (`hover_group` + `group_opacity`, no view re-run), starts the game.
+  The first click of a double click opens the page, so for `DOUBLE_CLICK` after it the
+  grid still takes presses and the page doesn't (`App::opening_until`). While a game runs,
+  a Stop button sits in Play's place on its card, always shown, and the page's Play turns
+  into Stop. Stop signals every process carrying `GAME_MARKER` (the game's folder, set in
+  its environment at launch), inside Steam's sandbox too (`stop_game`). The search is hidden until you type with no text field focused (`App::on_key`),
   then floats over the bottom of the window; Escape, emptying it, or clicking away while
   it's empty puts it away. Ctrl+F opens it too. There is no status bar: messages go
   through `App::set_status`, which shows a toast (above the search bar while it's open).
@@ -148,8 +152,9 @@ installer on the user's machine; check it in CI. Run `shellcheck` and `actionlin
   Escape handles it in its own `on_key` (the search bar does).
 - Cards are fixed-size (`CARD_W`) and only reflow in a wrapping row. Stretching them made
   live resizes jitter (`cards_keep_their_size_while_resizing`).
-- The side panel always floats. Opening it must never move a card, and it must not cover
-  the header (`panel_floats_over_the_grid`).
+- The game page replaces the grid without unmounting it (`game_page_replaces_the_grid`),
+  and is placed from the left edge like the header (`game_page_is_anchored_left_and_fits`).
+  Its text column has an even width, or the two fields sharing a line shimmer.
 - The Wine prefixes in `~/.local/share/asterisk-ofix/prefixes/` hold the games' saves.
   Never move or delete them, and keep `default_prefix` naming them the same way: after the
   game's folder, plus a hash of its path only when another live game with that folder name
