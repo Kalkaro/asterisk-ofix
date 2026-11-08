@@ -104,9 +104,11 @@ GPU, add `VK_ICD_FILENAMES=/run/opengl-driver/share/vulkan/icd.d/lvp_icd.x86_64.
 - The Wine prefixes in `~/.local/share/asterisk-ofix/prefixes/` hold the games' saves.
   Never move or delete them, and keep `default_prefix` naming them the same way.
 - Fonts in `fonts/` are static instances cut from the variable Google Sans Flex (OFL,
-  `ofl/googlesansflex` in github.com/google/fonts). To regenerate them:
-  `fonttools varLib.instancer 'GoogleSansFlex[ROND,opsz,slnt,wdth,wght].ttf' wght=400 wdth=100 opsz=drop slnt=0 ROND=0 --static -o fonts/GoogleSansFlex-Regular.ttf`
-  (and `wght=600` for SemiBold).
+  `ofl/googlesansflex` in github.com/google/fonts), fully rounded: the user asked for the
+  roundness axis (`embedded_fonts_are_rounded`). To regenerate them:
+  `fonttools varLib.instancer 'GoogleSansFlex[ROND,opsz,slnt,wdth,wght].ttf' wght=400 wdth=100 opsz=drop slnt=0 ROND=100 --static -o fonts/GoogleSansFlex-Regular.ttf`
+  (and `wght=600` for SemiBold). Static cuts round every text, rune-kit's controls
+  included; per-style `TextStyle::variations` would miss the kit's own styles.
 - `flake.nix` builds from an explicit fileset. New non-Rust files that get embedded, like
   the fonts, must be added to it.
 - Rune is pinned to a `dev` rev in Cargo.toml, with the toolchain it pins (rust-toolchain

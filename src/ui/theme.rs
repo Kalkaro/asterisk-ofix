@@ -20,7 +20,8 @@ pub const PRIMARY: Color = lin(0.87137, 0.87137, 0.88792) /* #f0f0f2 */;
 pub const GREEN: Color = lin(0.07819, 0.63760, 0.23074) /* #4fd184 */;
 
 // Google Sans Flex, cut to static Regular and SemiBold instances from the variable font
-// (fonts/OFL.txt). Both instances name their family "Google Sans Flex".
+// with its roundness axis all the way up (ROND=100), so every text, kit controls included,
+// is rounded (fonts/OFL.txt). Both instances name their family "Google Sans Flex".
 pub const FONTS: &[&[u8]] = &[
     include_bytes!("../../fonts/GoogleSansFlex-Regular.ttf"),
     include_bytes!("../../fonts/GoogleSansFlex-SemiBold.ttf"),
@@ -122,6 +123,16 @@ mod tests {
     fn embedded_fonts_are_truetype() {
         for data in FONTS {
             assert!(data.len() > 10_000 && data.starts_with(&[0, 1, 0, 0]), "not an embedded TrueType file");
+        }
+    }
+
+    /// The instances are cut at ROND=100. Their STAT table then names that axis value
+    /// "Rounded" (UTF-16BE in the name table); at ROND=0 it's "Default".
+    #[test]
+    fn embedded_fonts_are_rounded() {
+        let rounded: Vec<u8> = "Rounded".encode_utf16().flat_map(u16::to_be_bytes).collect();
+        for data in FONTS {
+            assert!(data.windows(rounded.len()).any(|w| w == rounded), "a font isn't the rounded (ROND=100) cut");
         }
     }
 }
