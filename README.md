@@ -7,6 +7,24 @@ Steam overlay (Shift+Tab) and online play work, but nothing gets added to your S
 
 ![The library, with the pointer over a game](docs/preview.png)
 
+## Installing
+
+On Arch, Fedora, Ubuntu, Debian and most other x86_64 distros (glibc 2.35 or newer), this
+downloads the latest AppImage to `~/.local/bin` and adds it to your app menu:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Kalkaro/asterisk-ofix/main/install.sh | bash
+```
+
+Run it again to update. To remove it (your saves stay):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Kalkaro/asterisk-ofix/main/install.sh | bash -s -- --uninstall
+```
+
+It needs a native Steam install; Flatpak and Snap Steam aren't supported. On NixOS, use
+`nix run github:Kalkaro/asterisk-ofix`.
+
 ## Using it
 
 Put your games in `~/Games`, or add another folder with **Add folder**. Any folder with
@@ -33,24 +51,6 @@ you're logged in.
 
 Settings are in `~/.config/asterisk-ofix/config.json`, and each game's last log is in
 `~/.local/share/asterisk-ofix/logs/`.
-
-## Installing
-
-On Arch, Fedora, Ubuntu, Debian and most other x86_64 distros (glibc 2.35 or newer), this
-downloads the latest AppImage to `~/.local/bin` and adds it to your app menu:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/Kalkaro/asterisk-ofix/main/install.sh | bash
-```
-
-Run it again to update. To remove it (your saves stay):
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/Kalkaro/asterisk-ofix/main/install.sh | bash -s -- --uninstall
-```
-
-It needs a native Steam install; Flatpak and Snap Steam aren't supported. On NixOS, use
-`nix run github:Kalkaro/asterisk-ofix`.
 
 ## Building
 
