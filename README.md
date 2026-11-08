@@ -2,63 +2,66 @@
 
 # asterisk-ofix
 
-Launches OnlineFix / SteamFix games directly through Proton with the Steam overlay
-(Shift+Tab) attached. Nothing is added to your Steam library. Written in Rust with
-[Rune](https://github.com/anomalyco/rune).
+A Linux launcher for OnlineFix games. It runs them with Proton, the way Steam would, so the
+Steam overlay (Shift+Tab) and online play work, but nothing gets added to your Steam library.
 
 ![The library, with the pointer over a game](docs/preview.png)
 
-## How it launches
-
-For the selected game it does what Steam does for a Proton title:
-
-- runs `<proton>/proton waitforexitandrun game.exe` inside the Steam Linux Runtime the
-  Proton build asks for (from its `toolmanifest.vdf`). It joins the running Steam's
-  sandbox with `nsenter` when Steam runs in one (NixOS), else wraps it in `steam-run` there
-- preloads Steam's `gameoverlayrenderer.so` and enables the Vulkan overlay layer
-  (`ENABLE_VK_LAYER_VALVE_steam_overlay_1=1`)
-- sets `SteamAppId` / `SteamGameId` / `SteamOverlayGameId` to the fake app ID from
-  `OnlineFix.ini` / `SteamFix.ini` (usually 480)
-- sets `WINEDLLOVERRIDES` for the OnlineFix DLLs found next to the exe
-- uses its own Wine prefix per game in `~/.local/share/asterisk-ofix/prefixes/`
-
-Steam must be running and logged in.
-
-Games are found by scanning library folders (default `~/Games`) for `OnlineFix*.dll/ini` or
-`SteamFix*.dll/ini`. Settings live in `~/.config/asterisk-ofix/config.json`; logs in
-`~/.local/share/asterisk-ofix/logs/`.
-
 ## Using it
 
-Click a game to open its panel (Proton build, executable, launch options), and click it again
-to close it. Double-click it, or press the play button that appears under the pointer, to
-start it. Start typing anywhere to search; `Esc` closes the search, then the panel.
+Put your games in `~/Games`, or add another folder with **Add folder**. Any folder with
+OnlineFix's files in it (`OnlineFix*.dll`/`.ini` or `SteamFix*.dll`/`.ini`) shows up as a
+game. **Add game** takes an `.exe` directly.
 
-## Build / run
+- Click a game to see its settings, click it again to close them.
+- Double-click a game, or hit the play button on it, to start it.
+- Type anywhere to search. Esc closes the search, then the settings.
+
+Steam has to be running and logged in. If it isn't, Play starts it; press Play again once
+you're logged in.
+
+## What it does when you press Play
+
+- Runs the game with the Proton build you picked (your Steam default otherwise), inside the
+  Steam Linux Runtime that Proton build asks for. On NixOS it runs inside Steam's own sandbox
+  (or under `steam-run`), because Proton needs a normal Linux file layout.
+- Loads Steam's overlay into the game.
+- Sets the Steam app ID from the game's `OnlineFix.ini` / `SteamFix.ini` (usually 480).
+- Tells Wine to use the OnlineFix DLLs that sit next to the game.
+- Gives every game its own Wine prefix, in `~/.local/share/asterisk-ofix/prefixes/`. Your
+  saves live there.
+
+Settings are in `~/.config/asterisk-ofix/config.json`, and each game's last log is in
+`~/.local/share/asterisk-ofix/logs/`.
+
+## Building
+
+You need Nix with flakes.
 
 ```sh
-nix develop -c cargo run                  # dev build
-nix build && ./result/bin/asterisk-ofix   # package
-nix run .
+nix run .                                 # build and start it
+nix build && ./result/bin/asterisk-ofix   # just build it
+nix develop -c cargo run                  # quick dev build
+```
+
+There's also a command line, for scripts:
+
+```sh
+asterisk-ofix --launch ~/Games/SomeGame          # start a game and wait for it to exit
+asterisk-ofix --launch path/to/game.exe --print  # show the command instead of running it
 ```
 
 ## Tests
 
 ```sh
-nix develop -c cargo test                                          # everything, headless
-nix develop -c cargo test --release perf -- --ignored --nocapture  # frame costs
-ASTERISK_OFIX_INTEGRATION=1 nix develop -c cargo test sandbox -- --nocapture  # a real launch
+nix develop -c cargo test
 ```
 
-The integration test starts a fake "Steam" sandbox with `steam-run` (private `/tmp`, like
-NixOS Steam), launches Wine's `cmd.exe` through the real path (nsenter → env → Steam Linux
-Runtime → Proton) and checks that it runs, can see the sandbox's `/tmp`, has
-`gameoverlayrenderer.so` loaded and the overlay env set. Its Wine prefix is cached in
-`~/.cache/asterisk-ofix-test/prefix`.
-
-## CLI
+These run without a display and never touch your real files or start a game. One extra test
+does a real launch: it runs Wine's `cmd.exe` through the whole path inside a fake Steam
+sandbox and checks that it can see the sandbox and has the overlay loaded. It's slow and
+needs Steam and Proton installed:
 
 ```sh
-asterisk-ofix --launch ~/Games/SomeGame          # launch without the window, wait for it
-asterisk-ofix --launch path/to/game.exe --print  # print the full command instead
+ASTERISK_OFIX_INTEGRATION=1 nix develop -c cargo test sandbox -- --nocapture
 ```
