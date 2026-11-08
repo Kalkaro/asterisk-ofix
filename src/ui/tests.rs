@@ -630,6 +630,17 @@ fn a_hand_picked_exe_opens_its_panel() {
 }
 
 #[test]
+fn a_broken_config_says_so() {
+    let home = tempdir();
+    let paths = Paths::under(home.path());
+    crate::testutil::write(&paths.config_dir().join("config.json"), "{ not json");
+    let mut app = App::new(paths, fake::start(&[]).endpoints);
+    app.setup(std::sync::Arc::new(|| {}));
+    let toast = app.toast.as_ref().map(|t| t.text.clone()).unwrap_or_default();
+    assert!(toast.starts_with("Unreadable config.json kept as config.json.broken-"), "toast: {toast:?}");
+}
+
+#[test]
 fn add_folder_asks_for_a_folder_and_scans_it() {
     let mut ui = Ui::new(&[]);
     let lib = ui.home.path().join("More");

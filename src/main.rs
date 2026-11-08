@@ -54,7 +54,10 @@ fn launch_cli(target: &Path, prefix: Option<PathBuf>, print: bool) -> Result<(),
     } else {
         scan::game_from_exe(&target)
     };
-    let cfg = config::Config::load(&paths);
+    let (cfg, warning) = config::Config::open(&paths);
+    if let Some(warning) = warning {
+        eprintln!("warning: {warning}");
+    }
     let protons = steam.protons();
     let mut spec =
         launch::build_spec(&paths, &game, &cfg.settings(&game.root), &protons, &steam.default_proton(&protons))?;

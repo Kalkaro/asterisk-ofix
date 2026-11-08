@@ -56,10 +56,33 @@ fn null_as_default<'de, D: Deserializer<'de>, T: Default + Deserialize<'de>>(d: 
 
 impl Config {
     /// Reads the saved config, or starts with `~/Games`.
+    #[cfg(test)]
     pub fn load(paths: &Paths) -> Config {
-        if let Ok(data) = std::fs::read(paths.config_dir().join("config.json")) {
-            return serde_json::from_slice(&data).unwrap_or_default();
-        }
+        Config::open(paths).0
+    }
+
+    /// `load`, and what went wrong if the saved config couldn't be read. That file is moved
+    /// aside, so saving the fresh config can't overwrite the user's settings.
+    pub fn open(paths: &Paths) -> (Config, Option<String>) {
+        let path = paths.config_dir().join("config.json");
+        let error = match std::fs::read(&path) {
+            Ok(data) => match serde_json::from_slice(&data) {
+                Ok(c) => return (c, None),
+                Err(e) => e.to_string(),
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (Config::fresh(paths), None),
+            Err(e) => e.to_string(),
+        };
+        let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let aside = path.with_file_name(format!("config.json.broken-{secs}"));
+        let warning = match std::fs::rename(&path, &aside) {
+            Ok(()) => format!("Unreadable config.json kept as {} ({error})", crate::scan::file_name(&aside)),
+            Err(e) => format!("Unreadable config.json ({error}), and moving it aside failed: {e}"),
+        };
+        (Config::fresh(paths), Some(warning))
+    }
+
+    fn fresh(paths: &Paths) -> Config {
         let games = paths.home.join("Games");
         Config { libraries: if games.is_dir() { vec![games] } else { Vec::new() }, ..Config::default() }
     }
@@ -113,6 +136,31 @@ mod tests {
         assert!(Config::load(&paths).libraries.is_empty());
         std::fs::create_dir(home.path().join("Games")).unwrap();
         assert_eq!(Config::load(&paths).libraries, vec![home.path().join("Games")]);
+    }
+
+    /// A config that doesn't parse used to load as empty, and the next save wrote that over
+    /// every library and game setting.
+    #[test]
+    fn a_broken_config_is_kept_aside() {
+        let home = tempdir();
+        let paths = Paths::under(home.path());
+        let broken = r#"{"libraries":["/g"],"games":{"/g/A":{"fake_app_id":"480"}}}"#;
+        crate::testutil::write(&paths.config_dir().join("config.json"), broken);
+        let (c, warning) = Config::open(&paths);
+        assert!(c.libraries.is_empty());
+        let warning = warning.expect("a warning about the broken config");
+        assert!(warning.contains("config.json"), "{warning}");
+
+        c.save(&paths).unwrap();
+        let kept: Vec<_> = std::fs::read_dir(paths.config_dir())
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| crate::scan::file_name(p).starts_with("config.json.broken"))
+            .collect();
+        assert_eq!(kept.len(), 1, "the broken file is kept beside the new one");
+        assert_eq!(std::fs::read_to_string(&kept[0]).unwrap(), broken);
+        assert!(warning.contains(&crate::scan::file_name(&kept[0])), "{warning}");
+        assert_eq!(Config::open(&paths).1, None, "the new config reads fine");
     }
 
     #[test]

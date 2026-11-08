@@ -106,8 +106,9 @@ impl App {
             let paths = paths.clone();
             Box::new(move |spec: &LaunchSpec, on_exit: OnExit| steam.launch(&paths, spec, on_exit)) as Launcher
         });
+        let (cfg, cfg_warning) = Config::open(&paths);
         let mut app = App {
-            cfg: Config::load(&paths),
+            cfg,
             art: ArtStore::new(&paths, steam.as_ref().map(|s| s.root.as_path()), endpoints),
             images: HashMap::new(),
             image_cache: None,
@@ -134,6 +135,9 @@ impl App {
         };
         if app.steam.is_none() {
             app.set_status("Steam installation not found. Install Steam and log in once.");
+        }
+        if let Some(warning) = cfg_warning {
+            app.set_status(warning);
         }
         app.rescan();
         app
