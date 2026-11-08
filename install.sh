@@ -73,9 +73,9 @@ EOF
 
 fetch() {
   if command -v curl >/dev/null; then
-    curl -fL --progress-bar -o "$2" "$1"
+    curl -fL --retry 3 --retry-all-errors --progress-bar -o "$2" "$1"
   elif command -v wget >/dev/null; then
-    wget -q --show-progress -O "$2" "$1"
+    wget -q --show-progress --tries=3 -O "$2" "$1"
   else
     die "needs curl or wget"
   fi

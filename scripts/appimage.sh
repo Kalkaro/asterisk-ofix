@@ -31,7 +31,8 @@ ln -s usr/bin/asterisk-ofix "$app/AppRun"
 # appimagetool's static runtime needs no libfuse2 on the user's system.
 tool=target/appimagetool-x86_64.AppImage
 if [[ ! -x $tool ]]; then
-  curl -fsSL -o "$tool" https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+  # GitHub's downloads sometimes answer 504; v0.1.0's first build died of one.
+  curl -fsSL --retry 5 --retry-all-errors -o "$tool" https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
   chmod +x "$tool"
 fi
 mkdir -p dist
