@@ -28,21 +28,27 @@ cp packaging/asterisk-ofix.desktop packaging/asterisk-ofix.svg "$app/"
 ln -s asterisk-ofix.svg "$app/.DirIcon"
 ln -s usr/bin/asterisk-ofix "$app/AppRun"
 
-# appimagetool 1.9.1, whose static runtime needs no libfuse2 on the user's system. Pinned and
-# checked against GitHub's sha256 of it. It comes through GitHub's API: the plain
-# github.com/.../releases/download links answered 504 for every repo when v0.1.0 was built.
-tool=target/appimagetool-x86_64.AppImage
-tool_url=https://api.github.com/repos/AppImage/appimagetool/releases/assets/324406736
-tool_sha256=ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
-if ! echo "$tool_sha256  $tool" | sha256sum -c --status 2>/dev/null; then
-  auth=()
+# GitHub's plain github.com/.../releases/download links answered 504 for every repo when
+# v0.1.0 was built, and appimagetool fetches its runtime through them. Both come through
+# GitHub's API instead, pinned and checked against GitHub's sha256 of them.
+fetch_pinned() { # FILE ASSET_URL SHA256
+  if echo "$3  $1" | sha256sum -c --status 2>/dev/null; then return; fi
+  local auth=()
   # CI's token, so runners sharing an IP don't hit the anonymous API limit.
   if [[ -n ${GITHUB_TOKEN:-} ]]; then auth=(-H "Authorization: Bearer $GITHUB_TOKEN"); fi
-  curl -fsSL --retry 5 --retry-all-errors -H "Accept: application/octet-stream" "${auth[@]}" -o "$tool" "$tool_url"
-  echo "$tool_sha256  $tool" | sha256sum -c -
-  chmod +x "$tool"
-fi
+  curl -fsSL --retry 5 --retry-all-errors -H "Accept: application/octet-stream" "${auth[@]}" -o "$1" "$2"
+  echo "$3  $1" | sha256sum -c -
+}
+# appimagetool 1.9.1, and the type-2 runtime 20251108 that heads the AppImage: static, so
+# users need no libfuse2.
+tool=target/appimagetool-x86_64.AppImage
+fetch_pinned "$tool" https://api.github.com/repos/AppImage/appimagetool/releases/assets/324406736 \
+  ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+chmod +x "$tool"
+runtime=target/runtime-x86_64
+fetch_pinned "$runtime" https://api.github.com/repos/AppImage/type2-runtime/releases/assets/326011592 \
+  2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
 mkdir -p dist
 # Extracting instead of mounting works without FUSE (containers, CI).
-APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 "$tool" --no-appstream "$app" dist/asterisk-ofix-x86_64.AppImage
+APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 "$tool" --no-appstream --runtime-file "$runtime" "$app" dist/asterisk-ofix-x86_64.AppImage
 ls -lh dist/asterisk-ofix-x86_64.AppImage
