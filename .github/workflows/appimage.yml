@@ -17,6 +17,8 @@ jobs:
       - run: rustup toolchain install 1.99.1 --profile minimal
       - uses: Swatinem/rust-cache@v2
       - run: scripts/appimage.sh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - uses: actions/upload-artifact@v4
         with:
           name: appimage

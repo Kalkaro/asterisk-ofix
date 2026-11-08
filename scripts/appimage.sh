@@ -28,11 +28,18 @@ cp packaging/asterisk-ofix.desktop packaging/asterisk-ofix.svg "$app/"
 ln -s asterisk-ofix.svg "$app/.DirIcon"
 ln -s usr/bin/asterisk-ofix "$app/AppRun"
 
-# appimagetool's static runtime needs no libfuse2 on the user's system.
+# appimagetool 1.9.1, whose static runtime needs no libfuse2 on the user's system. Pinned and
+# checked against GitHub's sha256 of it. It comes through GitHub's API: the plain
+# github.com/.../releases/download links answered 504 for every repo when v0.1.0 was built.
 tool=target/appimagetool-x86_64.AppImage
-if [[ ! -x $tool ]]; then
-  # GitHub's downloads sometimes answer 504; v0.1.0's first build died of one.
-  curl -fsSL --retry 5 --retry-all-errors -o "$tool" https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+tool_url=https://api.github.com/repos/AppImage/appimagetool/releases/assets/324406736
+tool_sha256=ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+if ! echo "$tool_sha256  $tool" | sha256sum -c --status 2>/dev/null; then
+  auth=()
+  # CI's token, so runners sharing an IP don't hit the anonymous API limit.
+  if [[ -n ${GITHUB_TOKEN:-} ]]; then auth=(-H "Authorization: Bearer $GITHUB_TOKEN"); fi
+  curl -fsSL --retry 5 --retry-all-errors -H "Accept: application/octet-stream" "${auth[@]}" -o "$tool" "$tool_url"
+  echo "$tool_sha256  $tool" | sha256sum -c -
   chmod +x "$tool"
 fi
 mkdir -p dist
