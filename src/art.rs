@@ -355,13 +355,13 @@ mod tests {
         let home = tempdir();
         let paths = Paths::under(home.path());
         let steam = fake::start(&[(1000001, "Sky Ride")]);
-        let load = || {
-            let store = ArtStore::new(&paths, None, steam.endpoints.clone());
+        let load = |endpoints: &Endpoints| {
+            let store = ArtStore::new(&paths, None, endpoints.clone());
             store.load(&[1000001, 480, 0], |_| {});
             wait_for("art", || store.get(1000001).is_complete());
             store
         };
-        let store = load();
+        let store = load(&steam.endpoints);
         let art = store.get(1000001);
         assert_eq!(art.name, "Sky Ride");
         let cover = art.cover.unwrap();
@@ -371,9 +371,13 @@ mod tests {
             assert!(store.cache_path(1000001, f).exists(), "{f} not cached");
         }
 
-        let before = steam.hits.load(Ordering::SeqCst);
-        load();
-        assert_eq!(steam.hits.load(Ordering::SeqCst), before, "a second load comes from the cache");
+        // A second load comes from the cache: with the store unreachable it still completes.
+        // (Counting the fake store's connections instead raced with the first load's.)
+        let offline = Endpoints {
+            store_api: "http://127.0.0.1:9/api".into(),
+            asset_base: "http://127.0.0.1:9/assets/".into(),
+        };
+        assert_eq!(load(&offline).get(1000001).name, "Sky Ride");
     }
 
     #[test]
