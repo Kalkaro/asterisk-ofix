@@ -332,13 +332,14 @@ fn cover_id(root: &Path) -> String {
 fn card(s: &App, g: &Game) -> El {
     let name = s.display_name(g);
     let root = g.root.clone();
-    let open = s.selected.as_deref() == Some(g.root.as_path());
     let running = s.running.contains(&g.root);
     let cover = s.images.get(&g.real_id).and_then(|i: &Images| i.cover.as_ref());
     let layer = || el().absolute(0.0, 0.0).size(CARD_W, CARD_H);
 
-    let art = if open {
-        // The cover is on the page; it flies back here when the page closes.
+    let art = if s.selected.is_some() {
+        // The grid is hidden under a page, and the open game's cover is on it; it flies back
+        // here when the page closes. A cover still flying home goes too: a flight draws over
+        // the whole window whatever the grid's opacity, so it would show over the page.
         el().key("art-away").size(CARD_W, CARD_H)
     } else {
         let mut art = el()

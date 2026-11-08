@@ -155,6 +155,10 @@ installer on the user's machine; check it in CI. Run `shellcheck` and `actionlin
 - The game page replaces the grid without unmounting it (`game_page_replaces_the_grid`),
   and is placed from the left edge like the header (`game_page_is_anchored_left_and_fits`).
   Its text column has an even width, or the two fields sharing a line shimmer.
+- A `matched` element in flight draws above the whole window at its own opacity, ignoring
+  its ancestors'. So no card in the hidden grid shows its cover while a page is open: a
+  cover flying home when another page opened sat on top of it
+  (`a_cover_flying_home_never_shows_over_another_page`).
 - The Wine prefixes in `~/.local/share/asterisk-ofix/prefixes/` hold the games' saves.
   Never move or delete them, and keep `default_prefix` naming them the same way: after the
   game's folder, plus a hash of its path only when another live game with that folder name

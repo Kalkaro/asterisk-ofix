@@ -469,6 +469,31 @@ fn cover_flies_between_card_and_page() {
     assert_eq!(ui.rect(&format!("{card}/art")), from, "and lands back on the card");
 }
 
+/// A cover flying home from a page draws above the whole window, whatever the grid's
+/// opacity. Opening another page while it flew left it on top of the new page for most of a
+/// second.
+#[test]
+fn a_cover_flying_home_never_shows_over_another_page() {
+    let mut ui = Ui::new(&[("Hatch", 0), ("Pong", 0)]);
+    let (pong, hatch) = (ui.card("Pong"), ui.card("Hatch"));
+    ui.single_click(&pong);
+    ui.settle();
+    ui.key(Key::Escape);
+    ui.rt.frame(1.0 / 60.0);
+    ui.click(&hatch);
+    for _ in 0..30 {
+        ui.rt.frame(1.0 / 60.0);
+    }
+    let shown: Vec<_> = ui
+        .elements()
+        .into_iter()
+        .filter(|e| e.key.as_deref() == Some("art") && e.opacity > 0.01)
+        .map(|e| (e.path, e.opacity))
+        .collect();
+    assert!(shown.is_empty(), "a card's cover shows over the page: {shown:?}");
+    assert_eq!(ui.text("title"), "Hatch");
+}
+
 #[test]
 fn launch_options_start_collapsed() {
     let mut ui = Ui::new(&[("Pong", 0)]);
@@ -1014,3 +1039,4 @@ fn asterisk_drop_from_font_metrics() {
     assert!(asterisk_drop(40.0, 22.0) > asterisk_drop(22.0, 22.0));
     assert_eq!(asterisk_drop(40.0, 22.0).round(), 8.0);
 }
+
