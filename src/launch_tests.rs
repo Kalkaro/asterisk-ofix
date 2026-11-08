@@ -215,16 +215,53 @@ fn log_is_private_and_redacted() {
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
     std::fs::set_permissions(dir.join("Cool_Game.log"), std::fs::Permissions::from_mode(0o644)).unwrap();
 
-    let argv: Vec<String> =
-        ["/usr/bin/env", "-i", "MY_API_KEY=hunter2", "DISPLAY=:0", "/p/proton"].map(String::from).to_vec();
-    let (path, f) = open_log(&paths, "Cool Game", &argv).unwrap();
+    let spec = LaunchSpec { env: "MY_API_KEY=hunter2 PROTON_LOG=1".into(), ..spec() };
+    let host = env(&[("DISPLAY", ":0"), ("DATABASE_URL", "postgres://me:pw123@db")]);
+    let command = no_sandbox().launch_command_from(&spec, host).unwrap();
+    let (path, f) = open_log(&paths, "Cool Game", &command).unwrap();
     drop(f);
     let data = std::fs::read_to_string(&path).unwrap();
     assert!(!data.contains("hunter2") && data.contains("MY_API_KEY=[redacted]"), "{data}");
-    assert!(data.contains("DISPLAY=:0"), "ordinary variables are still logged");
+    assert!(data.contains("PROTON_LOG=1"), "the game's own settings are logged: {data}");
+    // A secret the name check misses still never reaches the log.
+    assert!(!data.contains("pw123") && data.contains(r#"DATABASE_URL="$DATABASE_URL""#), "{data}");
+    assert!(data.contains("DISPLAY=:0"), "{data}");
     for (p, want) in [(&path, 0o600), (&dir, 0o700)] {
         assert_eq!(std::fs::metadata(p).unwrap().permissions().mode() & 0o777, want, "{}", p.display());
     }
+}
+
+/// "Copy command" and logs printed the user's whole session environment, values and all,
+/// and those get pasted into bug reports; `is_secret_env` only catches secrets by name.
+/// Inherited variables now print as `"$KEY"`, and the line still means the same command.
+#[test]
+fn printed_command_shows_no_inherited_values() {
+    let spec = LaunchSpec { env: "PROTON_LOG=1".into(), args: "-windowed".into(), ..spec() };
+    let host = env(&[
+        ("DATABASE_URL", "postgres://me:pw123@db"),
+        ("HOME", "/home/someone private"),
+        ("QUOTES", r#"it's "$(rm -rf ~)""#),
+        ("DISPLAY", ":0"),
+        ("weird.name", "hidden"),
+    ]);
+    let command = no_sandbox().launch_command_from(&spec, host.clone()).unwrap();
+    let line = command.shell_line();
+    for private in ["pw123", "someone", "rm -rf", "hidden"] {
+        assert!(!line.contains(private), "{private:?} printed in {line}");
+    }
+    assert!(line.contains(r#"HOME="$HOME""#) && line.contains("DISPLAY=:0"), "{line}");
+    assert!(line.contains("SteamAppId=480") && line.contains("PROTON_LOG=1"), "our own values are shown: {line}");
+
+    // The shell expands the line back into the argv the game gets, less what it can't name.
+    let out = std::process::Command::new("sh")
+        .args(["-c", &format!("printf '%s\\n' {line}")])
+        .env_clear()
+        .envs(host)
+        .output()
+        .unwrap();
+    let printed: Vec<&str> = std::str::from_utf8(&out.stdout).unwrap().lines().collect();
+    let argv: Vec<&str> = command.argv.iter().map(String::as_str).filter(|a| *a != "weird.name=hidden").collect();
+    assert_eq!(printed, argv);
 }
 
 #[test]
@@ -237,7 +274,7 @@ fn splits_and_quotes_like_a_shell() {
     assert_eq!(split_shell(r#"-path "C:\Games\x""#).unwrap(), ["-path", r"C:\Games\x"]);
     assert_eq!(split_shell(r#""a\"b\\c\$d""#).unwrap(), [r#"a"b\c$d"#]);
     assert_eq!(split_shell(r"trailing\").unwrap(), [r"trailing\"]);
-    assert_eq!(shell_join(&["a b".into(), "it's".into(), "plain".into()]), r"'a b' 'it'\''s' plain");
+    assert_eq!(["a b", "it's", "plain"].map(shell_quote), ["'a b'", r"'it'\''s'", "plain"]);
     assert_eq!(slug("Cool Game: 2"), "Cool_Game__2");
 }
 

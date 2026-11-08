@@ -164,9 +164,12 @@ installer on the user's machine; check it in CI. Run `shellcheck` and `actionlin
   in Rune's repo) in flake.nix. Bump them together. Rune's docs are its
   `crates/rune/README.md` and `crates/rune-kit/README.md`.
 - Games get Steam's environment, which is the user's whole session. Keep secrets out with
-  `is_secret_env`: games are untrusted Windows binaries, and logs and "Copy command" print
-  that environment. Logs are 0600 in a 0700 dir, and secret-looking values are redacted
-  (`open_log`). This leaked a real API key once (`secrets_never_reach_the_game`,
+  `is_secret_env`: games are untrusted Windows binaries. This leaked a real API key once
+  (`secrets_never_reach_the_game`). Logs and "Copy command" never print inherited values:
+  `LaunchCommand::shell_line` writes them as `KEY="$KEY"` (only `DISPLAY`,
+  `WAYLAND_DISPLAY` and `XAUTHORITY` keep theirs), because the name check misses secrets
+  and those get pasted into bug reports (`printed_command_shows_no_inherited_values`). Logs
+  are 0600 in a 0700 dir, and secret-looking values of our own are redacted (`open_log`,
   `log_is_private_and_redacted`).
 - The user prefers fast builds. Dependencies build optimised once; our crate builds at
   opt-level 1 with mold, so an incremental build takes seconds.

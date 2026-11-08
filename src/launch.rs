@@ -28,16 +28,70 @@ pub type Env = Vec<(String, String)>;
 /// Called from a background thread when the game's Proton process ends.
 pub type OnExit = Box<dyn FnOnce(Result<(), String>) + Send>;
 
-impl Steam {
-    /// The argv that starts the game, mirroring what Steam does for a Proton game: run the
-    /// `proton` script inside the Steam Linux Runtime, with the overlay preloaded and the
-    /// Steam game IDs set to OnlineFix's fake app ID.
-    pub fn command(&self, spec: &LaunchSpec) -> Result<Vec<String>, String> {
-        self.command_from(spec, std::env::vars_os().map(|(k, v)| lossy(k, v)).collect())
+/// A launch's argv, knowing which of its arguments are KEY=VALUE pairs passed on from the
+/// session (or Steam's), so printing it never shows their values.
+#[derive(Clone, Debug)]
+pub struct LaunchCommand {
+    pub argv: Vec<String>,
+    inherited: Vec<bool>,
+}
+
+/// Inherited variables printed with their values: joining Steam's sandbox they are Steam's,
+/// which a terminal the command is pasted into may not share, and they hold nothing private.
+const PRINTED_AS_IS: &[&str] = &["DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY"];
+
+impl LaunchCommand {
+    /// As a copy-pasteable shell line. Variables passed on from the session appear as
+    /// `KEY="$KEY"`: the line still runs in the user's shell, but values that `is_secret_env`
+    /// can't recognise (a password inside a URL, a token by another name) don't end up in logs
+    /// and bug reports. One whose name the shell can't expand is left out.
+    pub fn shell_line(&self) -> String {
+        self.printed(shell_quote)
     }
 
-    /// `command` with `host` standing in for this process's environment.
+    /// The line, with `own` printing every argument that isn't a hidden inherited variable.
+    fn printed(&self, own: impl Fn(&str) -> String) -> String {
+        let mut out = Vec::new();
+        for (a, &inherited) in self.argv.iter().zip(&self.inherited) {
+            match a.split_once('=') {
+                Some((k, _)) if inherited && !PRINTED_AS_IS.contains(&k) => {
+                    if is_shell_name(k) {
+                        out.push(format!("{k}=\"${k}\""));
+                    }
+                }
+                _ => out.push(own(a)),
+            }
+        }
+        out.join(" ")
+    }
+}
+
+fn is_shell_name(k: &str) -> bool {
+    k.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_') && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+impl Steam {
+    /// Just the argv of `launch_command`.
+    #[cfg(test)]
+    pub fn command(&self, spec: &LaunchSpec) -> Result<Vec<String>, String> {
+        Ok(self.launch_command(spec)?.argv)
+    }
+
+    /// Just the argv of `launch_command_from`.
+    #[cfg(test)]
     pub fn command_from(&self, spec: &LaunchSpec, host: Env) -> Result<Vec<String>, String> {
+        Ok(self.launch_command_from(spec, host)?.argv)
+    }
+
+    /// The command that starts the game, mirroring what Steam does for a Proton game: run the
+    /// `proton` script inside the Steam Linux Runtime, with the overlay preloaded and the
+    /// Steam game IDs set to OnlineFix's fake app ID.
+    pub fn launch_command(&self, spec: &LaunchSpec) -> Result<LaunchCommand, String> {
+        self.launch_command_from(spec, std::env::vars_os().map(|(k, v)| lossy(k, v)).collect())
+    }
+
+    /// `launch_command` with `host` standing in for this process's environment.
+    pub fn launch_command_from(&self, spec: &LaunchSpec, host: Env) -> Result<LaunchCommand, String> {
         if spec.proton.dir.as_os_str().is_empty() {
             return Err("no Proton build selected".into());
         }
@@ -107,46 +161,48 @@ impl Steam {
         .into();
 
         let base = without_appimage(base);
-        let mut game_env: Vec<String> = base
+        // Each with whether it was inherited.
+        let mut game_env: Vec<(String, bool)> = base
             .iter()
             // TMPDIR may point outside the sandbox's private /tmp (even Steam's inherited
             // one); without it everything uses that /tmp. Secrets the user's session
             // exports stay out of untrusted game processes.
             .filter(|(k, v)| !set.contains_key(k.as_str()) && k != "TMPDIR" && !is_secret_env(k, v))
-            .map(|(k, v)| format!("{k}={v}"))
-            .chain(set.iter().map(|(k, v)| format!("{k}={v}")))
+            .map(|(k, v)| (format!("{k}={v}"), true))
+            .chain(set.iter().map(|(k, v)| (format!("{k}={v}"), false)))
             .collect();
         game_env.sort();
-        game_env.extend(extra_env);
+        game_env.extend(extra_env.into_iter().map(|kv| (kv, false)));
 
         // env sets the game's environment and working directory only once inside the
         // sandbox, where they resolve.
         let cwd = path_str(spec.exe.parent().unwrap_or(Path::new("/")));
-        let mut argv = vec!["/usr/bin/env".into(), "-i".into(), format!("--chdir={cwd}")];
+        let mut argv: Vec<(String, bool)> =
+            ["/usr/bin/env".into(), "-i".into(), format!("--chdir={cwd}")].map(|a| (a, false)).into();
         argv.extend(game_env);
-        argv.extend(game);
-        if let Some(mut wrap) = wrap {
+        argv.extend(game.into_iter().map(|a| (a, false)));
+        if let Some(wrap) = wrap {
             // Run where Steam runs, so the overlay can reach the game.
-            wrap.extend(argv);
-            return Ok(wrap);
-        }
-        if is_nixos() {
+            argv.splice(0..0, wrap.into_iter().map(|a| (a, false)));
+        } else if is_nixos() {
             // No Steam sandbox to join; Proton still needs an FHS system.
             if let Some(p) = look_path("steam-run") {
-                argv.insert(0, path_str(&p));
+                argv.insert(0, (path_str(&p), false));
             }
         }
-        Ok(argv)
+        let (argv, inherited) = argv.into_iter().unzip();
+        Ok(LaunchCommand { argv, inherited })
     }
 
     /// Starts the game detached from this process and returns its log file. `on_exit` runs
     /// on a background thread when the game's Proton process ends.
     pub fn launch(&self, paths: &Paths, spec: &LaunchSpec, on_exit: OnExit) -> Result<PathBuf, String> {
         use std::os::unix::process::CommandExt;
-        let argv = self.command(spec)?;
+        let command = self.launch_command(spec)?;
+        let argv = &command.argv;
         std::fs::create_dir_all(&spec.prefix).map_err(|e| format!("creating prefix: {e}"))?;
         claim_default_prefix(paths, spec).map_err(|e| format!("claiming prefix: {e}"))?;
-        let (log_path, log) = open_log(paths, &spec.name, &argv).map_err(|e| format!("log: {e}"))?;
+        let (log_path, log) = open_log(paths, &spec.name, &command).map_err(|e| format!("log: {e}"))?;
         let err_log = log.try_clone().map_err(|e| e.to_string())?;
         let mut cmd = std::process::Command::new(&argv[0]);
         cmd.args(&argv[1..]).current_dir(spec.exe.parent().unwrap_or(Path::new("/"))).stdout(log).stderr(err_log);
@@ -171,7 +227,7 @@ impl Steam {
 
     /// The launch as a copy-pasteable shell line.
     pub fn shell_command(&self, spec: &LaunchSpec) -> Result<String, String> {
-        Ok(shell_join(&self.command(spec)?))
+        Ok(self.launch_command(spec)?.shell_line())
     }
 }
 
@@ -251,9 +307,9 @@ fn prefix_owner(prefix: &Path) -> Option<PathBuf> {
     Some(PathBuf::from(std::ffi::OsStr::from_bytes(&data)))
 }
 
-/// A game's log, private to the user, starting with the launch command with anything
-/// secret-looking redacted.
-pub fn open_log(paths: &Paths, name: &str, argv: &[String]) -> std::io::Result<(PathBuf, std::fs::File)> {
+/// A game's log, private to the user, starting with the launch command as `shell_line` prints
+/// it, and secret-looking values of our own (a per-game environment) redacted too.
+pub fn open_log(paths: &Paths, name: &str, command: &LaunchCommand) -> std::io::Result<(PathBuf, std::fs::File)> {
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
     let path = log_path(paths, name);
     let dir = path.parent().unwrap_or(Path::new("/"));
@@ -262,14 +318,11 @@ pub fn open_log(paths: &Paths, name: &str, argv: &[String]) -> std::io::Result<(
     let mut f = std::fs::OpenOptions::new().create(true).truncate(true).write(true).mode(0o600).open(&path)?;
     // `mode` only applies to new files.
     f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
-    let shown: Vec<String> = argv
-        .iter()
-        .map(|a| match a.split_once('=') {
-            Some((k, v)) if is_secret_env(k, v) => format!("{k}=[redacted]"),
-            _ => a.clone(),
-        })
-        .collect();
-    writeln!(f, "$ {}\n", shell_join(&shown))?;
+    let shown = command.printed(|a| match a.split_once('=') {
+        Some((k, v)) if is_secret_env(k, v) => format!("{k}=[redacted]"),
+        _ => shell_quote(a),
+    });
+    writeln!(f, "$ {shown}\n")?;
     Ok((path, f))
 }
 
@@ -410,10 +463,6 @@ pub fn shell_quote(s: &str) -> String {
         return s.to_owned();
     }
     format!("'{}'", s.replace('\'', r"'\''"))
-}
-
-pub fn shell_join(argv: &[String]) -> String {
-    argv.iter().map(|a| shell_quote(a)).collect::<Vec<_>>().join(" ")
 }
 
 pub fn first_non_empty<'a>(a: &'a str, b: &'a str) -> &'a str {
