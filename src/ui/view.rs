@@ -223,8 +223,12 @@ fn card(s: &App, g: &Game) -> El {
         .hover_group()
         .cursor(Cursor::Pointer)
         .press_scale(0.97)
-        .on_press(move |s: &mut App| s.open_panel(&open))
-        .on_double_press(move |s: &mut App| s.play(&root))
+        .on_press(move |s: &mut App| s.toggle_panel(&open))
+        // The second click of a double click toggled the panel shut; it stays open.
+        .on_double_press(move |s: &mut App| {
+            s.open_panel(&root);
+            s.play(&root);
+        })
         .child(art.mb(8.0))
         .child(text(name).key("name").font(BODY).color(TEXT).truncate().w_full())
 }

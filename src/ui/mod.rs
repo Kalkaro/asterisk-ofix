@@ -291,6 +291,11 @@ impl App {
         build_spec(&self.paths, g, &s, &self.protons, &self.default_proton).ok()
     }
 
+    /// A click on a card: opens its panel, or closes it if it's the one open.
+    pub fn toggle_panel(&mut self, root: &Path) {
+        if self.selected.as_deref() == Some(root) { self.close_panel() } else { self.open_panel(root) }
+    }
+
     pub fn open_panel(&mut self, root: &Path) {
         if self.selected.as_deref() != Some(root) {
             self.selected = Some(root.to_path_buf());

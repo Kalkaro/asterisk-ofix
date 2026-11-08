@@ -290,7 +290,11 @@ fn single_click_opens_the_side_panel() {
     ui.settle();
     assert_eq!(ui.text("title"), "Hatch", "another card switches the panel");
     ui.single_click(&b);
-    assert_eq!(ui.rt.state.selected, Some(ui.game("Hatch")), "clicking the open game keeps its panel");
+    ui.settle();
+    assert!(ui.find("panel").is_none() && ui.rt.state.selected.is_none(), "clicking the open game closes it");
+    ui.single_click(&b);
+    ui.settle();
+    assert_eq!(ui.rt.state.selected, Some(ui.game("Hatch")), "and clicking again opens it");
 
     ui.key(Key::Escape);
     ui.settle();
