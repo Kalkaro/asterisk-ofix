@@ -49,6 +49,8 @@ pub struct App {
     /// Sorted by display name.
     pub games: Vec<Game>,
     pub search: TextEdit,
+    /// The floating search bar shows; it opens when you start typing.
+    pub search_open: bool,
     /// The game whose side panel is open.
     pub selected: Option<PathBuf>,
     pub running: HashSet<PathBuf>,
@@ -114,6 +116,7 @@ impl App {
             art_job: None,
             games: Vec::new(),
             search: TextEdit::default(),
+            search_open: false,
             selected: None,
             running: HashSet::new(),
             logs: HashMap::new(),
@@ -171,6 +174,11 @@ impl App {
                 Err(e) => self.set_status(format!("{name} exited: {e}")),
             }
         }
+        // Clicking away from an empty search puts it away.
+        if self.search_open && self.search.text.is_empty() && !self.search.focused {
+            self.close_search();
+            changed = true;
+        }
         if self.toast.as_ref().is_some_and(|t| now >= t.until) {
             self.toast = None;
             changed = true;
@@ -179,16 +187,36 @@ impl App {
     }
 
     pub fn on_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
+        let plain = !(ev.mods.cmd || ev.mods.ctrl || ev.mods.alt || ev.mods.logo);
         match &ev.key {
+            Key::Escape if self.search_open => self.close_search(),
             Key::Escape if self.open_select.is_some() => self.open_select = None,
             Key::Escape if self.selected.is_some() => self.close_panel(),
             Key::Command('f') => {
+                self.search_open = true;
                 self.search.focused = true;
                 tx.select_all_text("search");
+            }
+            // Typing anywhere that isn't a text field starts a search with what was typed.
+            Key::Text(t) if plain && t.chars().any(|c| !c.is_whitespace() && !c.is_control()) => {
+                if !self.search_open {
+                    self.search = TextEdit::new("");
+                    self.search_open = true;
+                }
+                self.search.text.push_str(t);
+                let end = self.search.text.len();
+                (self.search.anchor, self.search.focus) = (end, end);
+                self.search.focused = true;
             }
             _ => return false,
         }
         true
+    }
+
+    /// Hides the search bar and shows every game again.
+    pub fn close_search(&mut self) {
+        self.search_open = false;
+        self.search = TextEdit::default();
     }
 
     fn wake(&self) -> impl Fn() + Send + Sync + 'static {
@@ -439,7 +467,7 @@ impl App {
             self.cfg.manual_exes.push(exe.clone());
             self.save();
         }
-        self.search.clear();
+        self.close_search();
         self.rescan();
         if let Some(root) = self.games.iter().find(|g| g.exes.first() == Some(&exe)).map(|g| g.root.clone()) {
             self.open_panel(&root);

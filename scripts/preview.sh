@@ -12,6 +12,7 @@ snap library --size 1080x720
 snap library-narrow --size 600x600
 snap panel --scene panel --size 1280x760
 snap panel-narrow --scene panel --size 760x600
+snap search --scene search --size 1080x720
 snap no-matches --scene no-matches --size 1080x720
 snap toast --scene toast --size 1080x720
 # The pointer over the second card.

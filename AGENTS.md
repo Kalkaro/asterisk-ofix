@@ -47,7 +47,7 @@ nix develop -c scripts/preview.sh /some/dir
 ```
 
 This renders `library.png`, `library-narrow.png`, `hover.png`, `panel.png`,
-`panel-narrow.png`, `no-matches.png` and `toast.png` headlessly from your real library
+`panel-narrow.png`, `search.png`, `no-matches.png` and `toast.png` headlessly from your real library
 (Rune's `--snap`, with the scenes in `view::SCENES`). Look at them after any UI change.
 Don't launch the app on the user's desktop to take screenshots. In a sandbox without the
 GPU, add `VK_ICD_FILENAMES=/run/opengl-driver/share/vulkan/icd.d/lvp_icd.x86_64.json`
@@ -62,8 +62,11 @@ GPU, add `VK_ICD_FILENAMES=/run/opengl-driver/share/vulkan/icd.d/lvp_icd.x86_64.
   the toast. A single click on a card opens its panel right away. A double click
   (`on_double_press`), or the play button that fades in on hover (`hover_group` +
   `group_opacity`, no view re-run), starts the game. The panel floats over the grid below
-  the header (pinned in `main`). Escape closes it, Ctrl+F focuses search. There is no
-  status bar: messages go through `App::set_status`, which shows a toast.
+  the header (pinned in `main`); clicking the open game's card again closes it, as does
+  Escape. The search is hidden until you type with no text field focused (`App::on_key`),
+  then floats over the bottom of the window; Escape, emptying it, or clicking away while
+  it's empty puts it away. Ctrl+F opens it too. There is no status bar: messages go
+  through `App::set_status`, which shows a toast (above the search bar while it's open).
 - `src/ui/theme.rs`: palette, type, the embedded Google Sans Flex font, icons (SVG bodies),
   and the rune-kit `Kit`.
 - `src/background.rs`: the animated backdrop, ASCII stars on pure black, black and white
@@ -94,9 +97,16 @@ GPU, add `VK_ICD_FILENAMES=/run/opengl-driver/share/vulkan/icd.d/lvp_icd.x86_64.
   centred in a box whose width flips between odd and even moves by half a pixel as the
   window resizes, and its text shimmers. Centre things in an even-width box (`odd()` in
   view.rs); `nothing_shimmers_while_resizing` guards it.
+- During a live resize the compositor shows the last frame pinned to the window's left
+  edge until the next one lands, so anything placed from the right edge trails the edge
+  and jitters (the layout itself is exact on every frame). Keep the header anchored left
+  (`header_is_anchored_left`). Centred floating things (search bar, toast) are the
+  exception, and only show briefly.
 - Hyprland tiles windows smaller than the minimum size, and then the right edge is
-  cropped. Keep `MIN_WINDOW` under 600 wide and the header fitting at it (header buttons
-  drop their labels below 820 pt; `header_fits_at_every_width`).
+  cropped. Keep `MIN_WINDOW` under 600 wide and the header fitting at it
+  (`header_fits_at_every_width`).
+- A focused text field takes Escape to drop its focus, so a field that should close on
+  Escape handles it in its own `on_key` (the search bar does).
 - Cards are fixed-size (`CARD_W`) and only reflow in a wrapping row. Stretching them made
   live resizes jitter (`cards_keep_their_size_while_resizing`).
 - The side panel always floats. Opening it must never move a card, and it must not cover

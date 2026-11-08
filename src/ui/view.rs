@@ -6,7 +6,9 @@ use super::{App, Images};
 use crate::art::has_art;
 use crate::background::chunked;
 use crate::scan::Game;
-use rune::{Color, Cursor, Cx, El, ScrollSpec, SurfaceFit, Transition, Tx, col, el, icon, row, text};
+use rune::{
+    Color, Cursor, Cx, El, ScrollSpec, Spring, SpringPair, SurfaceFit, Transition, Tx, col, el, icon, row, text,
+};
 use rune_kit::{
     Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Kit, Select, SelectAppearance, TextInput,
 };
@@ -23,7 +25,9 @@ const HERO_H: f32 = 210.0;
 /// Softens the starfield (Gaussian sigma, points). The UI above stays sharp.
 pub const BG_BLUR: f32 = 0.8;
 /// Header buttons drop their labels below this window width.
-const COMPACT_BELOW: f32 = 820.0;
+const SEARCH_W: f32 = 520.0;
+const SEARCH_H: f32 = 52.0;
+const SEARCH_BOTTOM: f32 = 28.0;
 
 /// Named states for headless snapshots (`--snap out.png --scene panel`).
 type Scene = (&'static str, fn(&mut App));
@@ -34,7 +38,14 @@ pub const SCENES: &[Scene] = &[
             s.open_panel(&root)
         }
     }),
-    ("no-matches", |s| s.search = rune::TextEdit::new("zzzz")),
+    ("search", |s| {
+        s.search = rune::TextEdit::new("ma");
+        s.search_open = true;
+    }),
+    ("no-matches", |s| {
+        s.search = rune::TextEdit::new("zzzz");
+        s.search_open = true;
+    }),
     ("toast", |s| s.set_status("Launched Pong with GE-Proton10-4")),
 ];
 
@@ -47,8 +58,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     // hides the upscale.
     s.background.set_size(backdrop[0] as u32, backdrop[1] as u32);
 
-    let content =
-        col().key("content").w_full().h_full().child(header(s, &k, size[0])).child(main(s, &k, size[0], &mut layer));
+    let content = col().key("content").w_full().h_full().child(header(s, &k)).child(main(s, &k, size[0], &mut layer));
     let app = el()
         .key("app")
         .w_full()
@@ -63,7 +73,8 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
                 .inert(),
         )
         .child(content)
-        .children(s.toast.as_ref().map(|t| toast(&t.text, t.seq, size[0])));
+        .children(s.search_open.then(|| search_bar(s, &k, size[0])))
+        .children(s.toast.as_ref().map(|t| toast(&t.text, t.seq, size[0], s.search_open)));
     rune_kit::root(app, layer).on_window_focus(|s: &mut App, focused, tx: &mut Tx| {
         // No point animating behind other windows; the clock picks up where it stopped.
         s.background.set_paused(!focused);
@@ -71,28 +82,16 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     })
 }
 
-fn header(s: &App, k: &Kit, width: f32) -> El {
-    let compact = width < COMPACT_BELOW;
+fn header(s: &App, k: &Kit) -> El {
     let visible = s.visible().len();
     let count =
         if visible == s.games.len() { s.games.len().to_string() } else { format!("{visible} of {}", s.games.len()) };
-    let title =
-        row().gap(10.0).center_y().child(text("Library").font(PAGE_TITLE).color(TEXT)).child(
-            text(count).key("count").font(CAPTION_STRONG).color(MUTED).px(8.0).py(2.0).radius(10.0).fill(RAISED),
-        );
-    let mut search = TextInput::new(&s.search).placeholder("Search games").label("Search").leading_icon(k.glyph.search);
-    if !s.search.text.is_empty() {
-        search = search.clear_button();
-    }
-    let search =
-        search.width(None).on_edit(|s: &mut App| &mut s.search).on_action(|s: &mut App, _| s.search.clear()).build(k);
-    let button = |label: &'static str, glyph: &'static rune::Icon, key: &'static str| {
-        if compact {
-            IconButton::new(glyph).label(label).help(label).variant(IconButtonVariant::Neutral).build(k).key(key)
-        } else {
-            Button::new(label).icon(glyph).variant(ButtonVariant::Neutral).build(k).key(key)
-        }
+    let button = |label: &'static str, glyph: &'static rune::Icon, key: &'static str, f: fn(&mut App, &mut Tx)| {
+        Button::new(label).icon(glyph).variant(ButtonVariant::Neutral).on_press_tx(f).build(k).key(key)
     };
+    // Everything is anchored to the left edge. While a window is resized, the compositor
+    // shows the last frame pinned to the left until the next one lands, so content pinned
+    // to the right edge trails it and jitters (`header_is_anchored_left`).
     row()
         .key("header")
         .w_full()
@@ -101,14 +100,9 @@ fn header(s: &App, k: &Kit, width: f32) -> El {
         .pb(14.0)
         .gap(10.0)
         .center_y()
-        .child(title)
-        .child(
-            row()
-                .grow(1.0)
-                .min_w(0.0)
-                .justify_end()
-                .child(el().key("search").w_full().max_w(280.0).min_w(110.0).child(search)),
-        )
+        .child(text("Library").font(PAGE_TITLE).color(TEXT))
+        .child(text(count).key("count").font(CAPTION_STRONG).color(MUTED).px(8.0).py(2.0).radius(10.0).fill(RAISED))
+        .child(el().w(1.0).h(20.0).mx(6.0).fill(BORDER))
         .child(
             IconButton::new(&REFRESH)
                 .label("Rescan")
@@ -118,14 +112,82 @@ fn header(s: &App, k: &Kit, width: f32) -> El {
                 .build(k)
                 .key("rescan"),
         )
-        .child(attach(button("Add folder", &FOLDER_PLUS, "add-folder"), |s: &mut App, tx| s.add_folder(tx)))
-        .child(attach(button("Add game", &PLUS, "add-game"), |s: &mut App, tx| s.add_game(tx)))
+        .child(button("Add folder", &FOLDER_PLUS, "add-folder", App::add_folder))
+        .child(button("Add game", &PLUS, "add-game", App::add_game))
 }
 
-/// Header buttons are built before knowing which form they take, so they get their handler
-/// here.
-fn attach(e: El, f: fn(&mut App, &mut Tx)) -> El {
-    e.on_press_tx(f)
+/// The search: hidden until you start typing, then floating over the bottom of the window.
+fn search_bar(s: &App, k: &Kit, window_w: f32) -> El {
+    let visible = s.visible().len();
+    let count = if s.search.text.trim().is_empty() {
+        format!("{} games", s.games.len())
+    } else {
+        format!("{visible} of {}", s.games.len())
+    };
+    let field = TextInput::new(&s.search)
+        .placeholder("Search games")
+        .label("Search")
+        .plain()
+        .width(None)
+        .text_style(SEARCH)
+        .on_edit(|s: &mut App| &mut s.search)
+        // The field would take Escape to drop its focus; here it closes the search.
+        .on_key(|s: &mut App, ev: &rune::KeyEvent, _: &mut Tx| {
+            let escape = matches!(ev.key, rune::Key::Escape);
+            if escape {
+                s.close_search();
+            }
+            escape
+        })
+        .on_change(|s: &mut App, _| {
+            // Deleting everything typed puts it away again.
+            if s.search.text.is_empty() {
+                s.close_search();
+            }
+        })
+        .build(k);
+    let pop = Spring::new(0.42, 0.18);
+    row()
+        .key("search-row")
+        .pin(Some(GUTTER), None, Some(GUTTER + odd(window_w)), Some(SEARCH_BOTTOM))
+        .justify_center()
+        .child(
+            row()
+                .key("search-bar")
+                .w((window_w - 2.0 * GUTTER).min(SEARCH_W))
+                .h(SEARCH_H)
+                .pl(16.0)
+                .pr(10.0)
+                .gap(10.0)
+                .center_y()
+                .radius(SEARCH_H / 2.0)
+                .backdrop_blur(14.0)
+                .fill(RAISED.alpha(0.82))
+                .border(1.0, Color::WHITE.alpha(0.10))
+                .shadow(18.0, 44.0, Color::BLACK.alpha(0.75))
+                .transition(
+                    Transition::offset(0.0, 36.0)
+                        .combined(Transition::scale(0.92))
+                        .combined(Transition::opacity())
+                        .springs(SpringPair::new(pop, Spring::new(0.24, 0.0))),
+                )
+                .child(icon(k.glyph.search, 18.0).color(MUTED))
+                .child(el().key("search").grow(1.0).min_w(0.0).child(field))
+                .child(text(count).key("search-count").font(CAPTION).color(MUTED))
+                .child(
+                    text("esc")
+                        .key("search-close")
+                        .font(CAPTION_STRONG)
+                        .color(MUTED)
+                        .px(7.0)
+                        .py(2.0)
+                        .radius(6.0)
+                        .border(1.0, BORDER)
+                        .cursor(Cursor::Pointer)
+                        .help("Close search")
+                        .on_press(App::close_search),
+                ),
+        )
 }
 
 /// The grid, with the side panel floating over its right edge.
@@ -487,21 +549,28 @@ fn ghost(k: &Kit, label: &'static str, glyph: &'static rune::Icon, f: fn(&mut Ap
 }
 
 /// A floating message at the bottom of the window.
-fn toast(message: &str, seq: u64, window_w: f32) -> El {
-    row().key("toast-row").pin(Some(GUTTER), None, Some(GUTTER + odd(window_w)), Some(24.0)).justify_center().child(
-        row()
-            .key(format!("toast-{seq}"))
-            .max_w(640.0)
-            .gap(10.0)
-            .center_y()
-            .px(16.0)
-            .py(10.0)
-            .radius(12.0)
-            .fill(RAISED)
-            .border(1.0, BORDER)
-            .shadow(10.0, 30.0, Color::BLACK.alpha(0.6))
-            .transition(Transition::offset(0.0, 12.0).combined(Transition::opacity()))
-            .child(el().size(6.0, 6.0).radius(3.0).fill(PRIMARY))
-            .child(text(message).key("toast").font(BODY).color(TEXT).truncate()),
-    )
+fn toast(message: &str, seq: u64, window_w: f32, above_search: bool) -> El {
+    // Rides above the search bar while it's open.
+    let bottom = if above_search { SEARCH_BOTTOM + SEARCH_H + 12.0 } else { 24.0 };
+    row()
+        .key("toast-row")
+        .pin(Some(GUTTER), None, Some(GUTTER + odd(window_w)), Some(bottom))
+        .motion(Spring::new(0.35, 0.1))
+        .justify_center()
+        .child(
+            row()
+                .key(format!("toast-{seq}"))
+                .max_w(640.0)
+                .gap(10.0)
+                .center_y()
+                .px(16.0)
+                .py(10.0)
+                .radius(12.0)
+                .fill(RAISED)
+                .border(1.0, BORDER)
+                .shadow(10.0, 30.0, Color::BLACK.alpha(0.6))
+                .transition(Transition::offset(0.0, 12.0).combined(Transition::opacity()))
+                .child(el().size(6.0, 6.0).radius(3.0).fill(PRIMARY))
+                .child(text(message).key("toast").font(BODY).color(TEXT).truncate()),
+        )
 }

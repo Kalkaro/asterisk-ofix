@@ -26,9 +26,9 @@ Games are found by scanning library folders (default `~/Games`) for `OnlineFix*.
 
 ## Using it
 
-Click a game to open its panel (Proton build, executable, launch options). Double-click it,
-or press the play button that appears under the pointer, to start it. `Ctrl+F` searches,
-`Esc` closes the panel.
+Click a game to open its panel (Proton build, executable, launch options), and click it again
+to close it. Double-click it, or press the play button that appears under the pointer, to
+start it. Start typing anywhere to search; `Esc` closes the search, then the panel.
 
 ## Build / run
 

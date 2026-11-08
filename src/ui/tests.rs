@@ -208,12 +208,20 @@ fn empty_library_offers_to_add_games() {
 }
 
 #[test]
-fn search_filters_cards() {
+fn search_is_hidden_until_you_type() {
     let mut ui = Ui::new(&[("Hidden Road", 0), ("Hatch", 0), ("Pong", 0)]);
-    ui.click("search");
-    ui.type_text("HA");
+    assert!(ui.find("search-bar").is_none(), "no search until you type");
+
+    // Typing with nothing focused opens the bar with what was typed, and keeps typing in it.
+    ui.type_text("H");
+    ui.type_text("a");
+    ui.settle();
+    assert!(ui.find("search-bar").is_some());
+    assert_eq!(ui.rt.state.search.text, "Ha");
+    assert!(ui.rt.state.search.focused, "the bar takes the keyboard");
     assert_eq!(ui.card_names(), ["Hatch"]);
     assert_eq!(ui.text("count"), "1 of 3");
+    assert_eq!(ui.text("search-count"), "1 of 3");
 
     ui.type_text("zzz");
     ui.settle();
@@ -221,16 +229,65 @@ fn search_filters_cards() {
     assert_eq!(ui.text("empty-heading"), "No matches");
     assert!(ui.find("empty-actions").is_none(), "no add buttons for an empty search");
 
-    ui.rt.update(|s, _| s.search.clear());
+    ui.key(Key::Escape);
     ui.settle();
-    assert_eq!(ui.card_names().len(), 3, "clearing the search brings every card back");
+    assert!(ui.find("search-bar").is_none(), "Escape puts the search away");
+    assert_eq!(ui.card_names().len(), 3, "and brings every card back");
+    assert!(!ui.rt.state.search_open && ui.rt.state.search.text.is_empty());
 }
 
 #[test]
-fn ctrl_f_focuses_search() {
+fn deleting_the_search_puts_it_away() {
+    let mut ui = Ui::new(&[("Hidden Road", 0), ("Hatch", 0)]);
+    ui.type_text("x");
+    ui.settle();
+    assert!(ui.find("search-bar").is_some());
+    ui.key(Key::Backspace);
+    ui.settle();
+    assert!(ui.find("search-bar").is_none(), "an emptied search hides");
+    assert_eq!(ui.card_names().len(), 2);
+}
+
+/// The bar floats over the bottom of the window, centred, and slides in.
+#[test]
+fn search_bar_floats_at_the_bottom() {
+    let mut ui = Ui::new(&[("Hatch", 0)]);
+    ui.type_text("h");
+    ui.rt.frame(1.0 / 60.0);
+    let (_, fading) = ui.presented("search-bar").unwrap();
+    assert!(fading < 0.9, "it animates in (opacity {fading} on its second frame)");
+    ui.settle();
+    let [x, y, w, h] = ui.rect("search-bar");
+    assert_eq!(ui.presented("search-bar").unwrap().1, 1.0);
+    assert!((y + h - (SIZE.1 - 28.0)).abs() < 0.5, "28 pt above the bottom edge, at {}", y + h);
+    assert!(((x + w / 2.0) - SIZE.0 / 2.0).abs() <= 0.5, "centred: {x} + {w}");
+
+    // A toast while it's open sits above it.
+    ui.rt.update(|s, _| s.set_status("Launch command copied"));
+    ui.settle();
+    let [_, ty, _, th] = ui.rect("toast");
+    assert!(ty + th <= y, "the toast overlaps the search bar");
+}
+
+#[test]
+fn typing_in_a_field_doesnt_open_search() {
+    let mut ui = Ui::new(&[("Pong", 0)]);
+    let root = ui.game("Pong");
+    ui.rt.update(move |s, _| s.open_panel(&root));
+    ui.settle();
+    ui.click("args");
+    ui.type_text("-w");
+    assert!(!ui.rt.state.search_open);
+    assert_eq!(ui.rt.state.form.args.text, "-w");
+}
+
+#[test]
+fn ctrl_f_opens_search() {
     let mut ui = Ui::new(&[("Pong", 0)]);
     ui.key(Key::Command('f'));
-    assert!(ui.rt.state.search.focused);
+    ui.settle();
+    assert!(ui.rt.state.search_open && ui.rt.state.search.focused);
+    assert!(ui.find("search-bar").is_some());
 }
 
 #[test]
@@ -448,8 +505,26 @@ fn header_fits_at_every_width() {
             let [x, _, bw, _] = ui.rect(key);
             assert!(x + bw <= w - 20.0, "width {w}: {key} ends at {}", x + bw);
         }
-        let search = ui.rect("search")[2];
-        assert!((100.0..=280.0).contains(&search), "width {w}: the search box is {search} wide");
+    }
+}
+
+/// During a live resize the compositor shows the last frame pinned to the window's left
+/// edge until the next lands, so anything placed from the right edge trails it and jitters.
+/// Nothing in the header moves when the window's width changes.
+#[test]
+fn header_is_anchored_left() {
+    let mut ui = Ui::new(&[("Hatch", 0)]);
+    let keys = ["count", "rescan", "add-folder", "add-game"];
+    ui.resize(1300.0, 700.0);
+    let wide: Vec<_> = keys.iter().map(|k| ui.rect(k)).collect();
+    let mut w = 1299.0;
+    while w >= MIN_WINDOW.0 {
+        ui.rt.set_viewport((w, 700.0), 1.0);
+        ui.rt.frame(1.0 / 60.0);
+        for (k, r) in keys.iter().zip(&wide) {
+            assert_eq!(&ui.rect(k), r, "width {w}: {k} moved with the window's right edge");
+        }
+        w -= 7.0;
     }
 }
 
