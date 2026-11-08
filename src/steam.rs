@@ -99,18 +99,32 @@ impl Steam {
     pub fn default_proton(&self, protons: &[Proton]) -> String {
         let config = vdf::read(&self.root.join("config/config.vdf"));
         let mapping = config.path(&["InstallConfigStore", "Software", "Valve", "Steam", "CompatToolMapping", "0"]);
-        let name = match mapping.str("name") {
-            "proton_experimental" => "Proton - Experimental",
-            "proton_hotfix" => "Proton Hotfix",
-            n => n,
-        };
+        let name = mapping.str("name");
         protons
             .iter()
-            .find(|p| p.name == name || crate::scan::file_name(&p.dir) == name)
+            .find(|p| {
+                let dir = crate::scan::file_name(&p.dir);
+                p.name == name || dir == name || valve_tool_name(&dir).is_some_and(|n| n == name)
+            })
             .or(protons.first())
             .map(|p| p.name.clone())
             .unwrap_or_default()
     }
+}
+
+/// Steam's internal name for one of Valve's Proton builds, from its folder: "Proton 9.0" is
+/// proton_9, "Proton 5.13" proton_513.
+fn valve_tool_name(dir: &str) -> Option<String> {
+    match dir {
+        "Proton - Experimental" => return Some("proton_experimental".into()),
+        "Proton Hotfix" => return Some("proton_hotfix".into()),
+        _ => {}
+    }
+    let (major, minor) = dir.strip_prefix("Proton ")?.split_once('.')?;
+    if !(major.chars().chain(minor.chars()).all(|c| c.is_ascii_digit())) {
+        return None;
+    }
+    Some(if minor == "0" { format!("proton_{major}") } else { format!("proton_{major}{minor}") })
 }
 
 /// Whether a Steam client process exists.
@@ -287,5 +301,42 @@ mod tests {
         assert_eq!(protons[2].runtime, None);
         assert_eq!(steam.default_proton(&protons), "Proton - Experimental");
         assert!(detect(tempdir().path()).is_none());
+    }
+
+    /// Steam saves its default as the tool's internal name: Valve's numbered builds are
+    /// proton_9, proton_513 and so on. Only the Experimental and Hotfix names were known, so
+    /// a default of Proton 9.0 fell back to the first custom build.
+    #[test]
+    fn default_proton_follows_steams_internal_names() {
+        let home = tempdir();
+        let root = home.path().join(".local/share/Steam");
+        write(&root.join("compatibilitytools.d/GE-Proton10-4/proton"), "");
+        write(
+            &root.join("compatibilitytools.d/GE-Proton10-4/compatibilitytool.vdf"),
+            r#""compatibilitytools" { "compat_tools" { "GE-Proton10-4" { "install_path" "." } } }"#,
+        );
+        for v in ["Proton 10.0", "Proton 9.0", "Proton 6.3", "Proton 5.13", "Proton Hotfix", "Proton - Experimental"] {
+            write(&root.join("steamapps/common").join(v).join("proton"), "");
+        }
+        let steam = detect(home.path()).unwrap();
+        let protons = steam.protons();
+        for (internal, want) in [
+            ("proton_10", "Proton 10.0"),
+            ("proton_9", "Proton 9.0"),
+            ("proton_63", "Proton 6.3"),
+            ("proton_513", "Proton 5.13"),
+            ("proton_hotfix", "Proton Hotfix"),
+            ("proton_experimental", "Proton - Experimental"),
+            ("GE-Proton10-4", "GE-Proton10-4"),
+            ("proton_4", "GE-Proton10-4"), // not installed: the first build
+        ] {
+            write(
+                &root.join("config/config.vdf"),
+                format!(
+                    r#""InstallConfigStore" {{ "Software" {{ "Valve" {{ "Steam" {{ "CompatToolMapping" {{ "0" {{ "name" "{internal}" }} }} }} }} }} }}"#
+                ),
+            );
+            assert_eq!(steam.default_proton(&protons), want, "Steam's default {internal}");
+        }
     }
 }
