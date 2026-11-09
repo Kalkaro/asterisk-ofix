@@ -12,14 +12,26 @@ Arch, Fedora, Ubuntu and most other x86_64 distros (glibc 2.35 or newer)
 curl -fsSL https://raw.githubusercontent.com/Kalkaro/asterofix/main/install.sh | bash
 ```
 
-NixOS
-
-```sh
-nix profile add github:Kalkaro/asterofix
-```
-
 Run the install again to update. To uninstall, change `bash` to `bash -s -- --uninstall`
 (your saves stay).
+
+NixOS: add it as an input to your flake
+
+```nix
+inputs.asterofix.url = "github:Kalkaro/asterofix";
+```
+
+and put it in your packages:
+
+```nix
+environment.systemPackages = [ inputs.asterofix.packages.${pkgs.stdenv.hostPlatform.system}.default ];
+```
+
+or run it directly without installing:
+
+```sh
+nix run github:Kalkaro/asterofix
+```
 
 It needs a native Steam install; Flatpak and Snap Steam aren't supported.
 
