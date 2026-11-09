@@ -9,7 +9,7 @@
 //! It needs Steam, a Proton build with a runtime, steam-run and nsenter, and takes a minute
 //! the first time (Wine prefix creation):
 //!
-//!     ASTERISK_OFIX_INTEGRATION=1 nix develop -c cargo test sandbox -- --nocapture
+//!     ASTEROFIX_INTEGRATION=1 nix develop -c cargo test sandbox -- --nocapture
 
 use crate::launch::LaunchSpec;
 use crate::paths::Paths;
@@ -20,8 +20,8 @@ use std::time::{Duration, Instant};
 
 #[test]
 fn launch_inside_steam_sandbox() {
-    if std::env::var_os("ASTERISK_OFIX_INTEGRATION").is_none() {
-        return eprintln!("skipped: set ASTERISK_OFIX_INTEGRATION=1 to run");
+    if std::env::var_os("ASTEROFIX_INTEGRATION").is_none() {
+        return eprintln!("skipped: set ASTEROFIX_INTEGRATION=1 to run");
     }
     let real = Paths::from_env();
     let Some(mut steam) = crate::steam::detect(&real.home) else { return eprintln!("skipped: no Steam install") };
@@ -35,7 +35,7 @@ fn launch_inside_steam_sandbox() {
     }
 
     // Everything the game touches is under $HOME: the sandbox can't see this process's /tmp.
-    let base = real.home.join(".cache/asterisk-ofix-test");
+    let base = real.home.join(".cache/asterofix-test");
     let game_dir = base.join("game");
     let prefix = base.join("prefix"); // kept between runs; creating it is slow
     std::fs::create_dir_all(&game_dir).unwrap();
@@ -49,16 +49,16 @@ fn launch_inside_steam_sandbox() {
     std::fs::write(&exe, cmd).unwrap();
 
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos();
-    let token = format!("asterisk-ofix{}x{nanos}", std::process::id());
+    let token = format!("asterofix{}x{nanos}", std::process::id());
     let marker = format!("/tmp/{token}");
 
     // The fake Steam: writes a marker into its private /tmp and idles.
     let mut fake = std::process::Command::new("steam-run")
         .args(["sh", "-c", &format!("echo seen-{token} > {marker} && exec sleep 600")])
-        .env("ASTERISK_OFIX_FAKE_STEAM", &token)
+        .env("ASTEROFIX_FAKE_STEAM", &token)
         .spawn()
         .unwrap();
-    let sandbox_pid = wait_for_pid(&format!("ASTERISK_OFIX_FAKE_STEAM={token}"), "sleep", Duration::from_secs(20));
+    let sandbox_pid = wait_for_pid(&format!("ASTEROFIX_FAKE_STEAM={token}"), "sleep", Duration::from_secs(20));
     if Path::new(&marker).exists() {
         eprintln!("note: the fake sandbox's /tmp is not private here; the /tmp check proves less");
     }
@@ -66,14 +66,14 @@ fn launch_inside_steam_sandbox() {
     steam.sandbox_pid = sandbox_pid;
     let win = |p: &Path| format!("Z:{}", p.to_string_lossy().replace('/', "\\"));
     let spec = LaunchSpec {
-        name: "asterisk-ofix-integration".into(),
+        name: "asterofix-integration".into(),
         exe: exe.clone(),
         game_dir: game_dir.clone(),
         proton,
         prefix,
         fake_app_id: 480,
         overrides: "winmm=n,b".into(),
-        env: format!("ASTERISK_OFIX_TEST_TOKEN={token}"),
+        env: format!("ASTEROFIX_TEST_TOKEN={token}"),
         // Proton doesn't forward console output, so the probe reports through files in the
         // game folder (Z: is the Unix root), then stays alive so we can inspect it.
         args: format!(
@@ -97,7 +97,7 @@ fn launch_inside_steam_sandbox() {
         if Instant::now() > deadline {
             break None;
         }
-        for pid in pids_with_env(&format!("ASTERISK_OFIX_TEST_TOKEN={token}")) {
+        for pid in pids_with_env(&format!("ASTEROFIX_TEST_TOKEN={token}")) {
             let maps = std::fs::read_to_string(format!("/proc/{pid}/maps")).unwrap_or_default();
             overlay_loaded |= maps.contains("ubuntu12_64/gameoverlayrenderer.so");
             let env = environ(pid);
@@ -106,7 +106,7 @@ fn launch_inside_steam_sandbox() {
                 && get("ENABLE_VK_LAYER_VALVE_steam_overlay_1") == Some("1")
                 && get("WINEDLLOVERRIDES") == Some("winmm=n,b");
             // Inherited from the fake Steam process, as DISPLAY would be.
-            steam_env |= get("ASTERISK_OFIX_FAKE_STEAM") == Some(token.as_str());
+            steam_env |= get("ASTEROFIX_FAKE_STEAM") == Some(token.as_str());
         }
     };
     let _ = fake.kill();

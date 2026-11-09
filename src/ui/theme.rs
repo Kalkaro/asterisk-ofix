@@ -85,7 +85,7 @@ pub fn initials(name: &str) -> String {
 
 macro_rules! icons {
     ($($name:ident = $body:literal;)*) => {
-        $(pub static $name: Icon = Icon { name: concat!("asterisk-ofix-", stringify!($name)), view: 16.0, body: $body };)*
+        $(pub static $name: Icon = Icon { name: concat!("asterofix-", stringify!($name)), view: 16.0, body: $body };)*
     };
 }
 

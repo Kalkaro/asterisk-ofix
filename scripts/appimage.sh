@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds dist/asterisk-ofix-x86_64.AppImage. CI runs it on Ubuntu 22.04; its glibc (2.35) is
+# Builds dist/asterofix-x86_64.AppImage. CI runs it on Ubuntu 22.04; its glibc (2.35) is
 # the oldest the AppImage runs on, so build on an old distro, not with Nix:
 #   scripts/appimage.sh
 # Needs Rust (rustup), pkg-config, libxkbcommon-dev, libwayland-dev, curl and file.
@@ -12,7 +12,7 @@ cd "$(dirname "$0")/.."
 
 toolchain=${RUST_TOOLCHAIN:-1.99.1} # what Rune pins; keep in step with flake.nix
 cargo "+$toolchain" build --release --locked
-bin=target/release/asterisk-ofix
+bin=target/release/asterofix
 
 echo "needs:" && readelf -d "$bin" | sed -n 's/.*NEEDED.*\[\(.*\)\]/  \1/p'
 echo "newest glibc symbol: $(objdump -T "$bin" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)"
@@ -20,13 +20,13 @@ echo "newest glibc symbol: $(objdump -T "$bin" | grep -o 'GLIBC_[0-9.]*' | sort 
 app=target/AppDir
 rm -rf "$app"
 mkdir -p "$app/usr/bin" "$app/usr/share/applications" "$app/usr/share/icons/hicolor/scalable/apps"
-install -m755 "$bin" "$app/usr/bin/asterisk-ofix"
-strip "$app/usr/bin/asterisk-ofix"
-install -m644 packaging/asterisk-ofix.desktop "$app/usr/share/applications/"
-install -m644 packaging/asterisk-ofix.svg "$app/usr/share/icons/hicolor/scalable/apps/"
-cp packaging/asterisk-ofix.desktop packaging/asterisk-ofix.svg "$app/"
-ln -s asterisk-ofix.svg "$app/.DirIcon"
-ln -s usr/bin/asterisk-ofix "$app/AppRun"
+install -m755 "$bin" "$app/usr/bin/asterofix"
+strip "$app/usr/bin/asterofix"
+install -m644 packaging/asterofix.desktop "$app/usr/share/applications/"
+install -m644 packaging/asterofix.svg "$app/usr/share/icons/hicolor/scalable/apps/"
+cp packaging/asterofix.desktop packaging/asterofix.svg "$app/"
+ln -s asterofix.svg "$app/.DirIcon"
+ln -s usr/bin/asterofix "$app/AppRun"
 
 # GitHub's plain github.com/.../releases/download links answered 504 for every repo when
 # v0.1.0 was built, and appimagetool fetches its runtime through them. Both come through
@@ -50,5 +50,5 @@ fetch_pinned "$runtime" https://api.github.com/repos/AppImage/type2-runtime/rele
   2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
 mkdir -p dist
 # Extracting instead of mounting works without FUSE (containers, CI).
-APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 "$tool" --no-appstream --runtime-file "$runtime" "$app" dist/asterisk-ofix-x86_64.AppImage
-ls -lh dist/asterisk-ofix-x86_64.AppImage
+APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 "$tool" --no-appstream --runtime-file "$runtime" "$app" dist/asterofix-x86_64.AppImage
+ls -lh dist/asterofix-x86_64.AppImage

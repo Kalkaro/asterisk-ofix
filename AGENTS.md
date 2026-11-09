@@ -1,6 +1,6 @@
 # AGENTS.md
 
-asterisk-ofix is a Rust app on the [Rune](https://github.com/anomalyco/rune) GUI framework
+asterofix is a Rust app on the [Rune](https://github.com/anomalyco/rune) GUI framework
 that launches Steam Fix / Online Fix games directly through Proton with the Steam overlay. See
 README.md for how launching works.
 
@@ -37,7 +37,7 @@ into one commit, and don't commit half-done work. Don't push unless asked.
 - `nix develop -c cargo test --release perf -- --ignored --nocapture` measures one relayout
   of 40 games at a new width (about 1 ms) and one backdrop frame (about 0.5 ms at 1280x768,
   drawn at 15 fps off the UI thread). Keep both well under a frame.
-- Real launches: `ASTERISK_OFIX_INTEGRATION=1 nix develop -c cargo test sandbox -- --nocapture`
+- Real launches: `ASTEROFIX_INTEGRATION=1 nix develop -c cargo test sandbox -- --nocapture`
   (slow; needs Steam's runtime and Proton installed).
 
 ## Checking the UI visually
@@ -60,8 +60,8 @@ GPU, add `VK_ICD_FILENAMES=/run/opengl-driver/share/vulkan/icd.d/lvp_icd.x86_64.
 (Mesa's software Vulkan).
 
 The README's `docs/preview.png` is `hover.png` from that script, shrunk to 1280 wide. The
-logo, `docs/logo.svg`, is drawn from the bundled font's outlines (the asterisk centred on
-the lowercase letters); redraw it after a font change:
+logo, `docs/logo.svg`, is drawn from the bundled font's outlines ("asterofix" with the asterisk in
+the o); redraw it after a font change:
 
 ```sh
 nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
@@ -116,11 +116,11 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
   installer fills in the fix downloaded beside it (`find_fix`), and the popup shows where the
   game will go or why it can't. Install runs them silently
   (Inno Setup `/VERYSILENT /DIR=`, NSIS `/S /D=`) through the same Proton launch as games, into
-  `~/Games/asterisk/<name>` and the prefix the game will play in. The name comes from the
+  `~/Games/asterofix/<name>` and the prefix the game will play in. The name comes from the
   installer's name or its folder's, minus versions, "by <repacker>" and fix words.
   `winebrowser.exe=d` stops installers opening their readme in a browser. Steps chain through
   the inbox (`App::install_step_done`), so the launcher stays on the UI thread; the toast stays
-  up while one runs (`set_progress`). `~/Games/asterisk` becomes a library, and a library inside
+  up while one runs (`set_progress`). `~/Games/asterofix` becomes a library, and a library inside
   another is scanned as a library, not taken for a game.
 - `src/art.rs`: Steam names, covers (600x900) and heroes. It checks our cache and Steam's
   library cache first, then the Steam CDN.
@@ -129,14 +129,14 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
 
 ## AppImage and install.sh
 
-`scripts/appimage.sh` builds `dist/asterisk-ofix-x86_64.AppImage`: just the binary, which
+`scripts/appimage.sh` builds `dist/asterofix-x86_64.AppImage`: just the binary, which
 links only glibc (everything else is dlopen()ed from the system), plus
-`packaging/asterisk-ofix.desktop` and the icon `packaging/asterisk-ofix.svg` (drawn by
+`packaging/asterofix.desktop` and the icon `packaging/asterofix.svg` (drawn by
 `scripts/icon.py` from the font's asterisk). CI (`.github/workflows/appimage.yml`) builds it
 on Ubuntu 22.04, runs `install.sh` and a headless `--snap` in Ubuntu, Debian, Fedora and Arch
 containers, and attaches it to the release on a `v*` tag. `install.sh` is the curl one-liner
 in the README: it fetches the release's AppImage into `~/.local/bin` with a menu entry, and
-`--uninstall` removes those but never `~/.local/share/asterisk-ofix` (the saves). Keep
+`--uninstall` removes those but never `~/.local/share/asterofix` (the saves). Keep
 `RUST_TOOLCHAIN` in `appimage.sh` and the workflow in step with flake.nix. Don't run the
 installer on the user's machine; check it in CI. Run `shellcheck` and `actionlint` on changes.
 
@@ -191,10 +191,10 @@ installer on the user's machine; check it in CI. Run `shellcheck` and `actionlin
   its ancestors'. So no card in the hidden grid shows its cover while a page is open: a
   cover flying home when another page opened sat on top of it
   (`a_cover_flying_home_never_shows_over_another_page`).
-- The Wine prefixes in `~/.local/share/asterisk-ofix/prefixes/` hold the games' saves.
+- The Wine prefixes in `~/.local/share/asterofix/prefixes/` hold the games' saves.
   Never move or delete them, and keep `default_prefix` naming them the same way: after the
   game's folder, plus a hash of its path only when another live game with that folder name
-  owns the plain one (`.asterisk-ofix-game` in the prefix, written on launch by
+  owns the plain one (`.asterofix-game` in the prefix, written on launch by
   `claim_default_prefix`; `games_in_same_named_folders_get_their_own_prefixes`).
 - Fonts in `fonts/` are static instances cut from the variable Google Sans Flex (OFL,
   `ofl/googlesansflex` in github.com/google/fonts), fully rounded: the user asked for the

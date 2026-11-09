@@ -1,4 +1,4 @@
-//! asterisk-ofix launches Steam Fix / Online Fix games directly through Proton with the Steam overlay attached,
+//! asterofix launches Steam Fix / Online Fix games directly through Proton with the Steam overlay attached,
 //! without adding them to Steam.
 
 mod art;
@@ -18,12 +18,12 @@ mod vdf;
 
 use std::path::{Path, PathBuf};
 
-const USAGE: &str = "usage: asterisk-ofix [--launch GAME [--print] [--prefix DIR]] [--install SETUP [FIX...]]
+const USAGE: &str = "usage: asterofix [--launch GAME [--print] [--prefix DIR]] [--install SETUP [FIX...]]
 
   --launch GAME   launch this game's .exe (or game folder) without the window, and wait for it
   --print         with --launch: print the command instead of running it
   --prefix DIR    with --launch: the Wine prefix to use
-  --install EXE.. install a game silently into ~/Games/asterisk from its installer, then its
+  --install EXE.. install a game silently into ~/Games/asterofix from its installer, then its
                   online fix (or just a fix, into the game installed before)";
 
 fn main() {
@@ -53,7 +53,7 @@ fn main() {
         None => return ui::run(),
     };
     if let Err(e) = result {
-        eprintln!("asterisk-ofix: {e}");
+        eprintln!("asterofix: {e}");
         std::process::exit(1);
     }
 }

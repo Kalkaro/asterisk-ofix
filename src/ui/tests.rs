@@ -1088,7 +1088,7 @@ impl Ui {
 /// Install opens a popup in the middle of the window. Choosing the game's installer (in
 /// ~/Downloads) fills in the fix downloaded beside its folder, and shows where the game will
 /// go. Install closes it and runs them silently one after the other, the game's first. The game
-/// lands in ~/Games/asterisk, which joins the libraries, and its page opens.
+/// lands in ~/Games/asterofix, which joins the libraries, and its page opens.
 #[test]
 fn install_runs_the_games_installer_then_its_fix() {
     let mut ui = Ui::new(&[]);
@@ -1114,7 +1114,7 @@ fn install_runs_the_games_installer_then_its_fix() {
     assert_eq!(form(&ui), Some((Some(setup.clone()), Some(fix.clone()))), "the fix beside it is found");
     assert_eq!(ui.text("install-game-name"), "Lucid Cats v2.4 by Pioneer/setup.exe");
     assert_eq!(ui.text("install-fix-name"), "Downloads/Lucid-Cats-Multiplayer-Fix-Online.exe");
-    assert_eq!(ui.text("install-status"), "Installs to ~/Games/asterisk/Lucid Cats");
+    assert_eq!(ui.text("install-status"), "Installs to ~/Games/asterofix/Lucid Cats");
 
     // Removed, and chosen again by hand, where it was downloaded.
     ui.click("install-fix-remove");
@@ -1130,7 +1130,7 @@ fn install_runs_the_games_installer_then_its_fix() {
     ui.click("install-confirm");
     ui.settle();
     assert!(ui.find("install-dialog").is_none(), "the popup closes");
-    let dest = ui.home.path().join("Games/asterisk/Lucid Cats");
+    let dest = ui.home.path().join("Games/asterofix/Lucid Cats");
     assert_eq!(fl.count(), 1);
     let spec = fl.0.borrow().0[0].clone();
     assert_eq!((&spec.exe, &spec.game_dir), (&setup, &dest));
@@ -1155,7 +1155,7 @@ fn install_runs_the_games_installer_then_its_fix() {
     fl.exit();
     ui.settle();
     assert_eq!(ui.toast(), "Installed Lucid Cats");
-    assert_eq!(ui.card_names(), ["Lucid Cats"], "a game in the new library, not one called asterisk");
+    assert_eq!(ui.card_names(), ["Lucid Cats"], "a game in the new library, not one called asterofix");
     assert_eq!(ui.rt.state.selected.as_deref(), Some(dest.as_path()));
     assert!(Config::load(&ui.paths()).libraries.contains(&dest.parent().unwrap().to_path_buf()));
     assert!(ui.rt.state.installing.is_none());
@@ -1169,7 +1169,7 @@ fn the_install_popup_says_why_it_cant_install() {
     ui.with_proton();
     let fl = FakeLaunch::install(&mut ui);
     let (setup, _) = ui.downloads();
-    add_game(&ui.home.path().join("Games/asterisk"), "Lucid Cats", 0);
+    add_game(&ui.home.path().join("Games/asterofix"), "Lucid Cats", 0);
     ui.click("install");
     ui.settle();
     ui.rt.update(move |s, _| s.choose_installer(setup));

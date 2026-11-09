@@ -189,7 +189,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "asterisk-ofix"
+name = "asterofix"
 version = "0.1.1"
 dependencies = [
  "image",

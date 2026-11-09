@@ -30,7 +30,7 @@ pub type OnExit = Box<dyn FnOnce(Result<(), String>) + Send>;
 
 /// Set to the game's folder in everything a launch starts. Proton, Wine and the game inherit
 /// it, inside Steam's sandbox too, where they aren't our children: Stop finds them by it.
-pub const GAME_MARKER: &str = "ASTERISK_OFIX_GAME";
+pub const GAME_MARKER: &str = "ASTEROFIX_GAME";
 
 /// A launch's argv, knowing which of its arguments are KEY=VALUE pairs passed on from the
 /// session (or Steam's), so printing it never shows their values.
@@ -272,7 +272,7 @@ pub fn build_spec(
 
 /// Names the game folder that launched in a prefix, so another game in a folder of the same
 /// name doesn't share its saves.
-const PREFIX_OWNER: &str = ".asterisk-ofix-game";
+const PREFIX_OWNER: &str = ".asterofix-game";
 
 /// The Wine prefix of the game in `root`: named after its folder, as it always was, unless a
 /// game in another folder of that name has claimed that prefix. Then the folder's name gets a

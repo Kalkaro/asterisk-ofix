@@ -1,5 +1,5 @@
 """Draws the app icon, the font's asterisk centred on a black rounded square, into an SVG:
-    python3 scripts/icon.py fonts/GoogleSansFlex-SemiBold.ttf packaging/asterisk-ofix.svg"""
+    python3 scripts/icon.py fonts/GoogleSansFlex-SemiBold.ttf packaging/asterofix.svg"""
 import sys
 from fontTools.ttLib import TTFont
 from fontTools.pens.svgPathPen import SVGPathPen

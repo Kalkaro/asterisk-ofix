@@ -1,5 +1,5 @@
 {
-  description = "asterisk-ofix - launch Steam Fix / Online Fix games through Proton with the Steam overlay";
+  description = "asterofix - launch Steam Fix / Online Fix games through Proton with the Steam overlay";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -72,7 +72,7 @@
         in
         {
           default = platform.buildRustPackage {
-            pname = "asterisk-ofix";
+            pname = "asterofix";
             version = "0.1.1";
             src = pkgs.lib.fileset.toSource {
               root = ./.;
@@ -100,14 +100,14 @@
             buildInputs = buildLibs pkgs;
             # The app menu entry and its icon, as the AppImage carries them.
             postInstall = ''
-              install -Dm644 packaging/asterisk-ofix.desktop -t $out/share/applications
-              install -Dm644 packaging/asterisk-ofix.svg -t $out/share/icons/hicolor/scalable/apps
+              install -Dm644 packaging/asterofix.desktop -t $out/share/applications
+              install -Dm644 packaging/asterofix.svg -t $out/share/icons/hicolor/scalable/apps
             '';
             postFixup = ''
-              wrapProgram $out/bin/asterisk-ofix \
+              wrapProgram $out/bin/asterofix \
                 --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath (runtimeLibs pkgs)}
             '';
-            meta.mainProgram = "asterisk-ofix";
+            meta.mainProgram = "asterofix";
           };
         }
       );
@@ -118,13 +118,13 @@
           let
             app = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
           in
-          pkgs.runCommand "asterisk-ofix-desktop-entry" { nativeBuildInputs = [ pkgs.desktop-file-utils ]; } ''
-            entry=${app}/share/applications/asterisk-ofix.desktop
+          pkgs.runCommand "asterofix-desktop-entry" { nativeBuildInputs = [ pkgs.desktop-file-utils ]; } ''
+            entry=${app}/share/applications/asterofix.desktop
             desktop-file-validate "$entry"
-            grep -qx 'Exec=asterisk-ofix' "$entry"
-            test -x ${app}/bin/asterisk-ofix
-            grep -qx 'Icon=asterisk-ofix' "$entry"
-            test -s ${app}/share/icons/hicolor/scalable/apps/asterisk-ofix.svg
+            grep -qx 'Exec=asterofix' "$entry"
+            test -x ${app}/bin/asterofix
+            grep -qx 'Icon=asterofix' "$entry"
+            test -s ${app}/share/icons/hicolor/scalable/apps/asterofix.svg
             touch $out
           '';
       });
@@ -142,8 +142,8 @@
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS = "-C link-arg=-fuse-ld=mold";
           # Interactive `nix develop` drops into fish; `nix develop -c ...` is untouched.
           shellHook = ''
-            if [[ $- == *i* && -z "$ASTERISK_OFIX_IN_FISH" ]] && command -v fish >/dev/null; then
-              export ASTERISK_OFIX_IN_FISH=1
+            if [[ $- == *i* && -z "$ASTEROFIX_IN_FISH" ]] && command -v fish >/dev/null; then
+              export ASTEROFIX_IN_FISH=1
               exec fish
             fi
           '';

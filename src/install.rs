@@ -1,5 +1,5 @@
 //! Installing a game from its Windows installer (a repack's setup.exe) and then its online fix,
-//! silently, into `~/Games/asterisk`. Each installer runs through Proton like a game does, in
+//! silently, into `~/Games/asterofix`. Each installer runs through Proton like a game does, in
 //! the prefix the game will play in.
 
 use crate::launch::{LaunchSpec, default_prefix, shell_quote};
@@ -10,7 +10,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 /// Where installed games go, under the home folder. It's added to the libraries.
-pub const INSTALL_DIR: &str = "Games/asterisk";
+pub const INSTALL_DIR: &str = "Games/asterofix";
 
 /// What the installers' names say: a game's setup and an online fix differ only in this.
 const FIX_WORDS: &[&str] = &["fix", "onlinefix", "steamfix", "multiplayer", "online", "coop", "co-op", "repair"];
@@ -298,7 +298,7 @@ mod tests {
     }
 
     #[test]
-    fn runs_the_game_first_and_its_fix_after_into_games_asterisk() {
+    fn runs_the_game_first_and_its_fix_after_into_games_asterofix() {
         let home = tempdir();
         let paths = Paths::under(home.path());
         let downloads = home.path().join("Downloads");
@@ -307,7 +307,7 @@ mod tests {
         // Picked the other way round.
         let plan = plan(&paths, &[fix.clone(), setup.clone()]).unwrap();
         assert_eq!(plan.name, "Lucid Cats");
-        assert_eq!(plan.dest, home.path().join("Games/asterisk/Lucid Cats"));
+        assert_eq!(plan.dest, home.path().join("Games/asterofix/Lucid Cats"));
         let exes: Vec<_> = plan.steps.iter().map(|s| (&s.exe, s.is_fix)).collect();
         assert_eq!(exes, [(&setup, false), (&fix, true)]);
 
@@ -332,8 +332,8 @@ mod tests {
 
     #[test]
     fn nsis_takes_the_folder_last_and_unquoted() {
-        let args = silent_args(Kind::Nsis, Path::new("/home/me/Games/asterisk/A B"));
-        assert_eq!(args, ["/S", r"/D=Z:\home\me\Games\asterisk\A B"]);
+        let args = silent_args(Kind::Nsis, Path::new("/home/me/Games/asterofix/A B"));
+        assert_eq!(args, ["/S", r"/D=Z:\home\me\Games\asterofix\A B"]);
     }
 
     #[test]
@@ -344,7 +344,7 @@ mod tests {
         let err = plan(&paths, std::slice::from_ref(&fix)).unwrap_err();
         assert!(err.contains("install Pong first"), "{err}");
 
-        let dest = home.path().join("Games/asterisk/Pong");
+        let dest = home.path().join("Games/asterofix/Pong");
         write(&dest.join("Pong.exe"), "x");
         let only_fix = plan(&paths, std::slice::from_ref(&fix)).unwrap();
         assert_eq!(only_fix.dest, dest, "a fix alone goes into its game's folder");

@@ -136,7 +136,7 @@ mod tests {
             GameSettings { args: "-w".into(), fake_app_id: 480, ..Default::default() }
         );
 
-        // Saving writes asterisk-ofix's own file, which wins from then on.
+        // Saving writes asterofix's own file, which wins from then on.
         Config { libraries: vec!["/h".into()], ..c }.save(&paths).unwrap();
         assert_eq!(Config::load(&paths).libraries, vec![PathBuf::from("/h")]);
     }
@@ -149,8 +149,8 @@ mod tests {
         std::fs::create_dir(home.path().join("Games")).unwrap();
         assert_eq!(Config::load(&paths).libraries, vec![home.path().join("Games")]);
         // Where games are installed to.
-        std::fs::create_dir(home.path().join("Games/asterisk")).unwrap();
-        assert_eq!(Config::load(&paths).libraries, [home.path().join("Games"), home.path().join("Games/asterisk")]);
+        std::fs::create_dir(home.path().join("Games/asterofix")).unwrap();
+        assert_eq!(Config::load(&paths).libraries, [home.path().join("Games"), home.path().join("Games/asterofix")]);
     }
 
     /// A config that doesn't parse used to load as empty, and the next save wrote that over

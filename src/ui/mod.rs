@@ -653,7 +653,7 @@ impl App {
     }
 
     /// Installs the game from `files`, its installer and online fixes in any order, into
-    /// ~/Games/asterisk.
+    /// ~/Games/asterofix.
     pub fn start_install(&mut self, files: Vec<PathBuf>) {
         let t = self.t();
         if self.installing.is_some() {
@@ -828,7 +828,7 @@ pub fn run() {
         on_key: Some(App::on_key),
         scenes: view::SCENES,
         ..AppSpec::new(
-            "asterisk-ofix",
+            "asterofix",
             WINDOW,
             || App::new(Paths::from_env(), Endpoints::default(), Lang::detect(|k| std::env::var(k).ok())),
             view::view,

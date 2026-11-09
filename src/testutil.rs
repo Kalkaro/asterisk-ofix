@@ -21,7 +21,7 @@ impl Drop for TempDir {
 pub fn tempdir() -> TempDir {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let dir = std::env::temp_dir().join(format!(
-        "asterisk-ofix-test-{}-{}",
+        "asterofix-test-{}-{}",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));

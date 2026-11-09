@@ -60,7 +60,7 @@ pub fn scan_libraries(libs: &[PathBuf]) -> Vec<Game> {
     let mut seen = HashSet::new();
     for lib in libs {
         for p in read_dir_sorted(lib) {
-            // A library inside another (~/Games/asterisk in ~/Games) is scanned as one, not
+            // A library inside another (~/Games/asterofix in ~/Games) is scanned as one, not
             // taken for a game.
             if !p.is_dir() || libs.contains(&p) {
                 continue;
@@ -240,7 +240,7 @@ mod tests {
     #[test]
     fn a_library_inside_another_holds_games_rather_than_being_one() {
         let lib = tempdir();
-        let inner = lib.path().join("asterisk");
+        let inner = lib.path().join("asterofix");
         crate::testutil::add_game(&inner, "Pong", 0);
         crate::testutil::add_game(lib.path(), "Hatch", 0);
         let names = |libs: &[PathBuf]| scan_libraries(libs).into_iter().map(|g| g.name).collect::<Vec<_>>();

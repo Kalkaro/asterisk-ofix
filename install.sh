@@ -1,45 +1,45 @@
 #!/usr/bin/env bash
-# Installs the latest asterisk-ofix AppImage for this user, with a menu entry:
-#   curl -fsSL https://raw.githubusercontent.com/Kalkaro/asterisk-ofix/main/install.sh | bash
-# Uninstall (your games' saves in ~/.local/share/asterisk-ofix stay):
-#   curl -fsSL https://raw.githubusercontent.com/Kalkaro/asterisk-ofix/main/install.sh | bash -s -- --uninstall
+# Installs the latest asterofix AppImage for this user, with a menu entry:
+#   curl -fsSL https://raw.githubusercontent.com/Kalkaro/asterofix/main/install.sh | bash
+# Uninstall (your games' saves in ~/.local/share/asterofix stay):
+#   curl -fsSL https://raw.githubusercontent.com/Kalkaro/asterofix/main/install.sh | bash -s -- --uninstall
 #
-# ASTERISK_OFIX_URL overrides where the AppImage comes from (tests use a file:// URL).
+# ASTEROFIX_URL overrides where the AppImage comes from (tests use a file:// URL).
 set -euo pipefail
 
 # Everything is in main, so a download cut off halfway runs nothing.
 main() {
-  local url=${ASTERISK_OFIX_URL:-https://github.com/Kalkaro/asterisk-ofix/releases/latest/download/asterisk-ofix-x86_64.AppImage}
+  local url=${ASTEROFIX_URL:-https://github.com/Kalkaro/asterofix/releases/latest/download/asterofix-x86_64.AppImage}
   local bin_dir="$HOME/.local/bin"
   local data=${XDG_DATA_HOME:-$HOME/.local/share}
-  local app="$bin_dir/asterisk-ofix"
-  local desktop="$data/applications/asterisk-ofix.desktop"
-  local icon="$data/icons/hicolor/scalable/apps/asterisk-ofix.svg"
+  local app="$bin_dir/asterofix"
+  local desktop="$data/applications/asterofix.desktop"
+  local icon="$data/icons/hicolor/scalable/apps/asterofix.svg"
 
   if [[ ${1:-} == --uninstall ]]; then
     rm -f "$app" "$desktop" "$icon"
     refresh_menus "$data"
-    say "removed asterisk-ofix. Your Wine prefixes and saves are still in $data/asterisk-ofix."
+    say "removed asterofix. Your Wine prefixes and saves are still in $data/asterofix."
     return
   fi
 
   [[ $(uname -m) == x86_64 ]] || die "only x86_64 is built, this is $(uname -m)"
   if grep -qsE '^ID="?nixos"?$' /etc/os-release; then
-    die "on NixOS, use the flake instead: nix run github:Kalkaro/asterisk-ofix"
+    die "on NixOS, use the flake instead: nix run github:Kalkaro/asterofix"
   fi
 
   # Global, so the EXIT trap still sees it after main returns.
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' EXIT
   say "downloading $url"
-  fetch "$url" "$tmp/asterisk-ofix.AppImage"
-  chmod +x "$tmp/asterisk-ofix.AppImage"
+  fetch "$url" "$tmp/asterofix.AppImage"
+  chmod +x "$tmp/asterofix.AppImage"
   # The icon comes out of the AppImage itself: one download.
-  (cd "$tmp" && ./asterisk-ofix.AppImage --appimage-extract asterisk-ofix.svg >/dev/null)
+  (cd "$tmp" && ./asterofix.AppImage --appimage-extract asterofix.svg >/dev/null)
 
   mkdir -p "$bin_dir" "$(dirname "$desktop")" "$(dirname "$icon")"
-  mv -f "$tmp/asterisk-ofix.AppImage" "$app"
-  install -m644 "$tmp/squashfs-root/asterisk-ofix.svg" "$icon"
+  mv -f "$tmp/asterofix.AppImage" "$app"
+  install -m644 "$tmp/squashfs-root/asterofix.svg" "$icon"
 
   # The AppImage mounts itself with FUSE; without fusermount it can unpack itself instead.
   local exec=$app
@@ -50,24 +50,24 @@ main() {
   cat >"$desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=asterisk-ofix
+Name=asterofix
 GenericName=Game Launcher
 Comment=Launch Steam Fix / Online Fix games through Proton with the Steam overlay
 Exec=$exec
-Icon=asterisk-ofix
+Icon=asterofix
 Terminal=false
 Categories=Game;
-StartupWMClass=asterisk-ofix
+StartupWMClass=asterofix
 EOF
   refresh_menus "$data"
 
-  say "installed asterisk-ofix to $app"
+  say "installed asterofix to $app"
   case ":$PATH:" in
     *":$bin_dir:"*) ;;
     *) say "note: $bin_dir isn't on your PATH; start it from your app menu, or add it to PATH." ;;
   esac
   if [[ ! -d $HOME/.local/share/Steam && ! -d $HOME/.steam/steam && -d $HOME/.var/app/com.valvesoftware.Steam ]]; then
-    say "warning: only Flatpak Steam was found, and asterisk-ofix needs a native Steam install."
+    say "warning: only Flatpak Steam was found, and asterofix needs a native Steam install."
   fi
 }
 
@@ -86,7 +86,7 @@ refresh_menus() {
   if command -v gtk-update-icon-cache >/dev/null; then gtk-update-icon-cache -qtf "$1/icons/hicolor" 2>/dev/null || true; fi
 }
 
-say() { printf 'asterisk-ofix: %s\n' "$*"; }
+say() { printf 'asterofix: %s\n' "$*"; }
 die() {
   say "$*" >&2
   exit 1

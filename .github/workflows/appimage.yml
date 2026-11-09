@@ -22,7 +22,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: appimage
-          path: dist/asterisk-ofix-x86_64.AppImage
+          path: dist/asterofix-x86_64.AppImage
 
   # A fresh container per distro: install.sh puts the AppImage in a throwaway home, the app
   # renders its window headless on Mesa's software Vulkan, and --uninstall removes it again.
@@ -64,16 +64,16 @@ jobs:
           set -euxo pipefail
           HOME=$(mktemp -d)
           export HOME PATH="$HOME/.local/bin:$PATH"
-          ASTERISK_OFIX_URL="file://$PWD/dist/asterisk-ofix-x86_64.AppImage" bash install.sh
-          test -x "$HOME/.local/bin/asterisk-ofix"
-          grep -q "^Exec=.*$HOME/.local/bin/asterisk-ofix" "$HOME/.local/share/applications/asterisk-ofix.desktop"
-          grep -q "<svg" "$HOME/.local/share/icons/hicolor/scalable/apps/asterisk-ofix.svg"
+          ASTEROFIX_URL="file://$PWD/dist/asterofix-x86_64.AppImage" bash install.sh
+          test -x "$HOME/.local/bin/asterofix"
+          grep -q "^Exec=.*$HOME/.local/bin/asterofix" "$HOME/.local/share/applications/asterofix.desktop"
+          grep -q "<svg" "$HOME/.local/share/icons/hicolor/scalable/apps/asterofix.svg"
           # No FUSE in a container: it unpacks itself, as the menu entry does then.
-          APPIMAGE_EXTRACT_AND_RUN=1 asterisk-ofix --snap "$GITHUB_WORKSPACE/${{ matrix.distro }}.png" --size 1080x720
+          APPIMAGE_EXTRACT_AND_RUN=1 asterofix --snap "$GITHUB_WORKSPACE/${{ matrix.distro }}.png" --size 1080x720
           test -s "$GITHUB_WORKSPACE/${{ matrix.distro }}.png"
           bash install.sh --uninstall
-          test ! -e "$HOME/.local/bin/asterisk-ofix"
-          test ! -e "$HOME/.local/share/applications/asterisk-ofix.desktop"
+          test ! -e "$HOME/.local/bin/asterofix"
+          test ! -e "$HOME/.local/share/applications/asterofix.desktop"
       - uses: actions/upload-artifact@v4
         with:
           name: screenshot-${{ matrix.distro }}
@@ -92,4 +92,4 @@ jobs:
           path: dist
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/asterisk-ofix-x86_64.AppImage
+          files: dist/asterofix-x86_64.AppImage

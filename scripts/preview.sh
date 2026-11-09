@@ -6,7 +6,7 @@ set -euo pipefail
 out=${1:?usage: scripts/preview.sh OUT_DIR [--real]}
 mkdir -p "$out"
 cargo build --quiet
-bin=$PWD/target/debug/asterisk-ofix
+bin=$PWD/target/debug/asterofix
 
 if [[ ${2:-} != --real ]]; then
   demo=$(mktemp -d)

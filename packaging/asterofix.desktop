@@ -1,10 +1,10 @@
 [Desktop Entry]
 Type=Application
-Name=asterisk-ofix
+Name=asterofix
 GenericName=Game Launcher
 Comment=Launch Steam Fix / Online Fix games through Proton with the Steam overlay
-Exec=asterisk-ofix
-Icon=asterisk-ofix
+Exec=asterofix
+Icon=asterofix
 Terminal=false
 Categories=Game;
-StartupWMClass=asterisk-ofix
+StartupWMClass=asterofix

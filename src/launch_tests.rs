@@ -108,9 +108,9 @@ fn command_sets_the_game_env_only_inside_the_sandbox() {
 #[test]
 fn appimage_env_stays_out_of_the_game() {
     let host = env(&[
-        ("APPIMAGE", "/home/u/Apps/asterisk-ofix.AppImage"),
+        ("APPIMAGE", "/home/u/Apps/asterofix.AppImage"),
         ("APPDIR", "/tmp/.mount_asterXYZ"),
-        ("ARGV0", "asterisk-ofix"),
+        ("ARGV0", "asterofix"),
         ("OWD", "/home/u"),
         ("APPIMAGE_EXTRACT_AND_RUN", "1"),
         ("LD_LIBRARY_PATH", "/tmp/.mount_asterXYZ/usr/lib:/opt/cuda/lib64"),

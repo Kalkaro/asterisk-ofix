@@ -59,7 +59,7 @@ def pong(w, h):
 def main():
     home = sys.argv[1]
     games = os.path.join(home, "Games")
-    cache = os.path.join(home, ".cache", "asterisk-ofix", "art")
+    cache = os.path.join(home, ".cache", "asterofix", "art")
     steam = os.path.join(home, ".local", "share", "Steam")
     for d in (games, cache):
         os.makedirs(d, exist_ok=True)

@@ -1,4 +1,4 @@
-//! Where asterisk-ofix keeps its config, data and cache. Everything that touches the user's files
+//! Where asterofix keeps its config, data and cache. Everything that touches the user's files
 //! takes a `Paths`, so tests point it at a temp dir instead of changing `HOME` (tests run in
 //! parallel threads that share one environment).
 
@@ -6,7 +6,7 @@
 use std::path::Path;
 use std::path::PathBuf;
 
-pub const APP: &str = "asterisk-ofix";
+pub const APP: &str = "asterofix";
 
 #[derive(Clone, Debug)]
 pub struct Paths {
