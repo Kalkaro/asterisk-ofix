@@ -110,6 +110,15 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
   so it resumes without jumping. `.blur(BG_BLUR)` softens it; the UI above stays sharp
   (`backdrop_is_blurred_behind_a_sharp_ui`). Keep it sparse: the user asked for something
   restrained.
+- `src/install.rs`: Install (the header's arrow, and `--install`). The game's installer, then
+  its online fix, picked in two file dialogs (Rune's picks one file at a time), run silently
+  (Inno Setup `/VERYSILENT /DIR=`, NSIS `/S /D=`) through the same Proton launch as games, into
+  `~/Games/asterisk/<name>` and the prefix the game will play in. The name comes from the
+  installer's name or its folder's, minus versions, "by <repacker>" and fix words.
+  `winebrowser.exe=d` stops installers opening their readme in a browser. Steps chain through
+  the inbox (`App::install_step_done`), so the launcher stays on the UI thread; the toast stays
+  up while one runs (`set_progress`). `~/Games/asterisk` becomes a library, and a library inside
+  another is scanned as a library, not taken for a game.
 - `src/art.rs`: Steam names, covers (600x900) and heroes. It checks our cache and Steam's
   library cache first, then the Steam CDN.
 - `src/scan.rs`, `src/steam.rs`, `src/launch.rs`, `src/vdf.rs`, `src/config.rs`,

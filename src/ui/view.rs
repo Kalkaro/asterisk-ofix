@@ -38,8 +38,9 @@ const HERO_ASPECT: f32 = 1920.0 / 620.0;
 pub const BG_BLUR: f32 = 0.8;
 const SEARCH_W: f32 = 520.0;
 /// What the header takes besides its texts' own widths: gutters, gaps, the logo, the icon
-/// buttons, and the labelled buttons' icons and padding, with room to spare.
-const HEADER_CHROME: f32 = 310.0;
+/// buttons, and the labelled buttons' icons and padding: 293 points, plus the 20 kept clear of
+/// the window's edge.
+const HEADER_CHROME: f32 = 316.0;
 /// Things that come and go (cards a search hides, the toast) fade over about a third of a
 /// second. Rune's default presence fade is over in ~0.1 s, which reads as popping.
 const FADE: SpringPair = SpringPair::new(Spring::new(0.35, 0.0), Spring::new(0.35, 0.0));
@@ -203,6 +204,15 @@ fn header(s: &App, k: &Kit, width: f32, layer: &mut Vec<El>) -> El {
         )
         .child(button(t.add_folder, &FOLDER_PLUS, "add-folder", App::add_folder))
         .child(button(t.add_game, &PLUS, "add-game", App::add_game))
+        .child(
+            IconButton::new(&DOWNLOAD)
+                .label(t.install)
+                .help(t.install_help)
+                .variant(IconButtonVariant::Ghost)
+                .on_press_tx(App::install)
+                .build(k)
+                .key("install"),
+        )
         .child(language_button(s, k, layer))
 }
 
@@ -530,6 +540,14 @@ fn empty(s: &App, k: &Kit) -> El {
                         .variant(ButtonVariant::Neutral)
                         .on_press_tx(App::add_game)
                         .build(k),
+                )
+                .child(
+                    Button::new(t.install)
+                        .icon(&DOWNLOAD)
+                        .variant(ButtonVariant::Neutral)
+                        .on_press_tx(App::install)
+                        .build(k)
+                        .key("empty-install"),
                 ),
         );
     }

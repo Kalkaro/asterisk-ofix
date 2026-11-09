@@ -60,7 +60,9 @@ pub fn scan_libraries(libs: &[PathBuf]) -> Vec<Game> {
     let mut seen = HashSet::new();
     for lib in libs {
         for p in read_dir_sorted(lib) {
-            if !p.is_dir() {
+            // A library inside another (~/Games/asterisk in ~/Games) is scanned as one, not
+            // taken for a game.
+            if !p.is_dir() || libs.contains(&p) {
                 continue;
             }
             if let Some(g) = detect_game(&p)
@@ -233,6 +235,17 @@ mod tests {
         assert_eq!(g.exes, vec![game.join("Cool Game.exe")]);
         assert_eq!(dll_overrides(&game), "SteamFix64=n;steam_api64=n;winmm=n,b");
         assert_eq!(dll_overrides(tempdir().path()), FALLBACK_OVERRIDES);
+    }
+
+    #[test]
+    fn a_library_inside_another_holds_games_rather_than_being_one() {
+        let lib = tempdir();
+        let inner = lib.path().join("asterisk");
+        crate::testutil::add_game(&inner, "Pong", 0);
+        crate::testutil::add_game(lib.path(), "Hatch", 0);
+        let names = |libs: &[PathBuf]| scan_libraries(libs).into_iter().map(|g| g.name).collect::<Vec<_>>();
+        assert_eq!(names(&[lib.path().to_path_buf(), inner.clone()]), ["Hatch", "Pong"]);
+        assert_eq!(names(&[inner, lib.path().to_path_buf()]), ["Pong", "Hatch"]);
     }
 
     #[test]

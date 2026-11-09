@@ -96,6 +96,7 @@ icons! {
     STOP = r#"<rect x="4" y="4" width="8" height="8" rx="1.4" fill="currentColor"/>"#;
     REFRESH = r#"<path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>"#;
     PLUS = r#"<path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>"#;
+    DOWNLOAD = r#"<path d="M8 2.5v7.5M4.8 7 8 10.2 11.2 7M3 13h10" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>"#;
     FOLDER = r#"<path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6l1.5 1.5h4.9A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5Z" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linejoin="round"/>"#;
     FOLDER_PLUS = r#"<path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6l1.5 1.5h4.9A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5Z" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linejoin="round"/><path d="M8 6.8v4M6 8.8h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>"#;
     DOCUMENT = r#"<path d="M4 2.5h5l3 3v8H4Z" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linejoin="round"/><path d="M9 2.5v3h3M6 8.5h4M6 10.5h4" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round"/>"#;

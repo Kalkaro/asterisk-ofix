@@ -86,8 +86,17 @@ impl Config {
     }
 
     fn fresh(paths: &Paths) -> Config {
-        let games = paths.home.join("Games");
-        Config { libraries: if games.is_dir() { vec![games] } else { Vec::new() }, ..Config::default() }
+        let libraries = [paths.home.join("Games"), paths.home.join(crate::install::INSTALL_DIR)];
+        Config { libraries: libraries.into_iter().filter(|d| d.is_dir()).collect(), ..Config::default() }
+    }
+
+    /// Adds a library folder; false when it was one already.
+    pub fn add_library(&mut self, dir: PathBuf) -> bool {
+        let new = !self.libraries.contains(&dir);
+        if new {
+            self.libraries.push(dir);
+        }
+        new
     }
 
     pub fn save(&self, paths: &Paths) -> std::io::Result<()> {
@@ -139,6 +148,9 @@ mod tests {
         assert!(Config::load(&paths).libraries.is_empty());
         std::fs::create_dir(home.path().join("Games")).unwrap();
         assert_eq!(Config::load(&paths).libraries, vec![home.path().join("Games")]);
+        // Where games are installed to.
+        std::fs::create_dir(home.path().join("Games/asterisk")).unwrap();
+        assert_eq!(Config::load(&paths).libraries, [home.path().join("Games"), home.path().join("Games/asterisk")]);
     }
 
     /// A config that doesn't parse used to load as empty, and the next save wrote that over

@@ -235,6 +235,19 @@ strings! {
     windows_programs,
     no_log,
     file_picker_failed,
+    install,
+    install_help,
+    install_game_title,
+    install_fix_title,
+    /// {0}: the game, while its installer runs.
+    installing,
+    /// {0}: the game, while its online fix's installer runs.
+    installing_fix,
+    /// {0}: the game.
+    installed,
+    install_failed,
+    /// {0}: the game being installed.
+    already_installing,
 }
 
 /// Slavic plurals: one, few (2-4, not 12-14) and many.
@@ -308,6 +321,15 @@ pub static EN: Strings = Strings {
     windows_programs: "Windows programs",
     no_log: "No log yet. Launch the game first.",
     file_picker_failed: "Could not open a file picker: {0}",
+    install: "Install",
+    install_help: "Install a game from its installer, then its online fix",
+    install_game_title: "Choose the game\u{2019}s installer",
+    install_fix_title: "Choose its online fix, or cancel to skip it",
+    installing: "Installing {0}\u{2026}",
+    installing_fix: "Installing the online fix for {0}\u{2026}",
+    installed: "Installed {0}",
+    install_failed: "Install failed: {0}",
+    already_installing: "Already installing {0}",
     games: |n| if n == 1 { "1 game".into() } else { format!("{n} games") },
 };
 
@@ -367,6 +389,15 @@ pub static RU: Strings = Strings {
     windows_programs: "Программы Windows",
     no_log: "Лога пока нет. Сначала запустите игру.",
     file_picker_failed: "Не удалось открыть выбор файла: {0}",
+    install: "Установить",
+    install_help: "Установить игру из установщика, затем онлайн-фикс",
+    install_game_title: "Выберите установщик игры",
+    install_fix_title: "Выберите онлайн-фикс или отмените, чтобы пропустить",
+    installing: "Устанавливаем {0}\u{2026}",
+    installing_fix: "Устанавливаем онлайн-фикс для {0}\u{2026}",
+    installed: "{0} установлена",
+    install_failed: "Не удалось установить: {0}",
+    already_installing: "{0} уже устанавливается",
     games: |n| slavic(n, "игра", "игры", "игр"),
 };
 
@@ -426,6 +457,15 @@ pub static UK: Strings = Strings {
     windows_programs: "Програми Windows",
     no_log: "Логу поки немає. Спочатку запустіть гру.",
     file_picker_failed: "Не вдалося відкрити вибір файлу: {0}",
+    install: "Встановити",
+    install_help: "Встановити гру з інсталятора, потім онлайн-фікс",
+    install_game_title: "Виберіть інсталятор гри",
+    install_fix_title: "Виберіть онлайн-фікс або скасуйте, щоб пропустити",
+    installing: "Встановлюємо {0}\u{2026}",
+    installing_fix: "Встановлюємо онлайн-фікс для {0}\u{2026}",
+    installed: "{0} встановлено",
+    install_failed: "Не вдалося встановити: {0}",
+    already_installing: "{0} вже встановлюється",
     games: |n| slavic(n, "гра", "гри", "ігор"),
 };
 
@@ -485,6 +525,15 @@ pub static DE: Strings = Strings {
     windows_programs: "Windows-Programme",
     no_log: "Noch kein Log. Starte zuerst das Spiel.",
     file_picker_failed: "Dateiauswahl konnte nicht geöffnet werden: {0}",
+    install: "Installieren",
+    install_help: "Ein Spiel aus seinem Installer installieren, danach seinen Online-Fix",
+    install_game_title: "Installer des Spiels wählen",
+    install_fix_title: "Online-Fix wählen oder abbrechen, um ihn zu überspringen",
+    installing: "{0} wird installiert\u{2026}",
+    installing_fix: "Online-Fix für {0} wird installiert\u{2026}",
+    installed: "{0} installiert",
+    install_failed: "Installation fehlgeschlagen: {0}",
+    already_installing: "{0} wird bereits installiert",
     games: |n| if n == 1 { "1 Spiel".into() } else { format!("{n} Spiele") },
 };
 
@@ -544,6 +593,15 @@ pub static FR: Strings = Strings {
     windows_programs: "Programmes Windows",
     no_log: "Pas encore de journal. Lancez d\u{2019}abord le jeu.",
     file_picker_failed: "Impossible d\u{2019}ouvrir le sélecteur de fichier : {0}",
+    install: "Installer",
+    install_help: "Installer un jeu depuis son installateur, puis son fix en ligne",
+    install_game_title: "Choisir l\u{2019}installateur du jeu",
+    install_fix_title: "Choisir son fix en ligne, ou annuler pour l\u{2019}ignorer",
+    installing: "Installation de {0}\u{2026}",
+    installing_fix: "Installation du fix en ligne de {0}\u{2026}",
+    installed: "{0} installé",
+    install_failed: "Échec de l\u{2019}installation : {0}",
+    already_installing: "{0} est déjà en cours d\u{2019}installation",
     games: |n| if n <= 1 { format!("{n} jeu") } else { format!("{n} jeux") },
 };
 
@@ -603,6 +661,15 @@ pub static ES: Strings = Strings {
     windows_programs: "Programas de Windows",
     no_log: "Aún no hay registro. Inicia el juego primero.",
     file_picker_failed: "No se pudo abrir el selector de archivos: {0}",
+    install: "Instalar",
+    install_help: "Instalar un juego desde su instalador y luego su fix online",
+    install_game_title: "Elige el instalador del juego",
+    install_fix_title: "Elige su fix online o cancela para omitirlo",
+    installing: "Instalando {0}\u{2026}",
+    installing_fix: "Instalando el fix online de {0}\u{2026}",
+    installed: "{0} instalado",
+    install_failed: "Error al instalar: {0}",
+    already_installing: "{0} ya se está instalando",
     games: |n| if n == 1 { "1 juego".into() } else { format!("{n} juegos") },
 };
 
@@ -662,6 +729,15 @@ pub static PT_BR: Strings = Strings {
     windows_programs: "Programas do Windows",
     no_log: "Ainda não há log. Inicie o jogo primeiro.",
     file_picker_failed: "Não foi possível abrir o seletor de arquivos: {0}",
+    install: "Instalar",
+    install_help: "Instalar um jogo pelo instalador e depois o fix online",
+    install_game_title: "Escolha o instalador do jogo",
+    install_fix_title: "Escolha o fix online ou cancele para pular",
+    installing: "Instalando {0}\u{2026}",
+    installing_fix: "Instalando o fix online de {0}\u{2026}",
+    installed: "{0} instalado",
+    install_failed: "Falha na instalação: {0}",
+    already_installing: "{0} já está sendo instalado",
     games: |n| if n == 1 { "1 jogo".into() } else { format!("{n} jogos") },
 };
 
@@ -721,6 +797,15 @@ pub static PL: Strings = Strings {
     windows_programs: "Programy Windows",
     no_log: "Nie ma jeszcze logu. Najpierw uruchom grę.",
     file_picker_failed: "Nie udało się otworzyć wyboru pliku: {0}",
+    install: "Zainstaluj",
+    install_help: "Zainstaluj grę z instalatora, a potem jej online fix",
+    install_game_title: "Wybierz instalator gry",
+    install_fix_title: "Wybierz online fix lub anuluj, aby go pominąć",
+    installing: "Instalowanie {0}\u{2026}",
+    installing_fix: "Instalowanie online fixa do {0}\u{2026}",
+    installed: "Zainstalowano {0}",
+    install_failed: "Instalacja nie powiodła się: {0}",
+    already_installing: "{0} już się instaluje",
     games: polish,
 };
 
@@ -780,6 +865,15 @@ pub static TR: Strings = Strings {
     windows_programs: "Windows programları",
     no_log: "Henüz günlük yok. Önce oyunu başlatın.",
     file_picker_failed: "Dosya seçici açılamadı: {0}",
+    install: "Yükle",
+    install_help: "Bir oyunu yükleyicisinden, ardından online fix\u{2019}ini yükle",
+    install_game_title: "Oyunun yükleyicisini seç",
+    install_fix_title: "Online fix\u{2019}ini seç veya atlamak için iptal et",
+    installing: "{0} yükleniyor\u{2026}",
+    installing_fix: "{0} için online fix yükleniyor\u{2026}",
+    installed: "{0} yüklendi",
+    install_failed: "Yükleme başarısız: {0}",
+    already_installing: "{0} zaten yükleniyor",
     games: |n| format!("{n} oyun"),
 };
 
@@ -839,6 +933,15 @@ pub static ZH_CN: Strings = Strings {
     windows_programs: "Windows 程序",
     no_log: "还没有日志。请先启动游戏。",
     file_picker_failed: "无法打开文件选择器：{0}",
+    install: "安装",
+    install_help: "从安装程序安装游戏，然后安装联机补丁",
+    install_game_title: "选择游戏的安装程序",
+    install_fix_title: "选择联机补丁，或取消以跳过",
+    installing: "正在安装 {0}\u{2026}",
+    installing_fix: "正在为 {0} 安装联机补丁\u{2026}",
+    installed: "已安装 {0}",
+    install_failed: "安装失败：{0}",
+    already_installing: "{0} 正在安装中",
     games: |n| format!("{n} 个游戏"),
 };
 
@@ -898,6 +1001,15 @@ pub static JA: Strings = Strings {
     windows_programs: "Windows プログラム",
     no_log: "ログはまだありません。先にゲームを起動してください。",
     file_picker_failed: "ファイル選択を開けませんでした: {0}",
+    install: "インストール",
+    install_help: "インストーラーからゲームを、続いてオンライン修正をインストール",
+    install_game_title: "ゲームのインストーラーを選択",
+    install_fix_title: "オンライン修正を選択（スキップするにはキャンセル）",
+    installing: "{0} をインストールしています\u{2026}",
+    installing_fix: "{0} のオンライン修正をインストールしています\u{2026}",
+    installed: "{0} をインストールしました",
+    install_failed: "インストールに失敗しました: {0}",
+    already_installing: "{0} はすでにインストール中です",
     games: |n| format!("{n} 本のゲーム"),
 };
 

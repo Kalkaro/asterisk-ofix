@@ -9,7 +9,7 @@ use crate::art::fake;
 use crate::config::Config;
 use crate::launch::{LaunchSpec, OnExit};
 use crate::paths::Paths;
-use crate::testutil::{TempDir, add_game, tempdir};
+use crate::testutil::{TempDir, add_game, inno_installer, tempdir};
 use rune::{ElementInfo, Env, Key, KeyEvent, Mods, Runtime};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -790,7 +790,7 @@ fn header_fits_at_every_width() {
         ui.rt.update(move |s, _| s.lang = lang);
         for w in [MIN_WINDOW.0, 600.0, 680.0, 760.0, 900.0, 1300.0] {
             ui.resize(w, 600.0);
-            for key in ["rescan", "add-folder", "add-game", "language-trigger"] {
+            for key in ["rescan", "add-folder", "add-game", "install", "language-trigger"] {
                 let [x, _, bw, _] = ui.rect(key);
                 assert!(x + bw <= w - 20.0, "{lang:?} at width {w}: {key} ends at {}", x + bw);
             }
@@ -858,7 +858,7 @@ fn toasts_speak_the_language() {
 #[test]
 fn header_is_anchored_left() {
     let mut ui = Ui::new(&[("Hatch", 0)]);
-    let keys = ["logo", "library-title", "count", "rescan", "add-folder", "add-game", "language-trigger"];
+    let keys = ["logo", "library-title", "count", "rescan", "add-folder", "add-game", "install", "language-trigger"];
     ui.resize(1300.0, 700.0);
     let wide: Vec<_> = keys.iter().map(|k| ui.rect(k)).collect();
     let mut w = 1299.0;
@@ -1033,6 +1033,96 @@ fn add_folder_asks_for_a_folder_and_scans_it() {
     ui.settle();
     assert_eq!(ui.card_names(), ["Hatch"]);
     assert!(Config::load(&ui.paths()).libraries.contains(&lib));
+}
+
+impl Ui {
+    /// Gives the app one Proton build, its default, as a fake Steam would.
+    fn with_proton(&mut self) {
+        self.rt.update(|s, _| {
+            s.protons = vec![crate::steam::Proton { name: "GE".into(), dir: "/p".into(), runtime: None }];
+            s.default_proton = "GE".into();
+        });
+    }
+
+    /// A repack's setup.exe in ~/Downloads and its fix beside the folder, as they download.
+    fn downloads(&self) -> (PathBuf, PathBuf) {
+        let downloads = self.home.path().join("Downloads");
+        let setup = inno_installer(&downloads.join("Lucid Cats v2.4 by Pioneer/setup.exe"));
+        (setup, inno_installer(&downloads.join("Lucid-Cats-Multiplayer-Fix-Online.exe")))
+    }
+}
+
+/// Install asks for the game's installer, then for its fix (next to the repack's folder), and
+/// runs them silently one after the other, the game's first. The game lands in
+/// ~/Games/asterisk, which joins the libraries, and its page opens.
+#[test]
+fn install_runs_the_games_installer_then_its_fix() {
+    let mut ui = Ui::new(&[]);
+    ui.with_proton();
+    let fl = FakeLaunch::install(&mut ui);
+    let (setup, fix) = ui.downloads();
+    ui.click("empty-install");
+    ui.rt.resolve_file_dialog(Some(setup.clone())).unwrap();
+    ui.settle();
+    let (kind, options) = ui.rt.file_dialog().expect("a picker for the fix");
+    assert_eq!(kind, rune::FileDialogKind::Open);
+    assert_eq!(options.directory.as_deref(), Some(ui.home.path().join("Downloads").as_path()));
+    ui.rt.resolve_file_dialog(Some(fix.clone())).unwrap();
+    ui.settle();
+
+    let dest = ui.home.path().join("Games/asterisk/Lucid Cats");
+    assert_eq!(fl.count(), 1);
+    let spec = fl.0.borrow().0[0].clone();
+    assert_eq!((&spec.exe, &spec.game_dir), (&setup, &dest));
+    assert!(spec.args.contains("/VERYSILENT"), "{}", spec.args);
+    assert_eq!(ui.toast(), "Installing Lucid Cats\u{2026}");
+    // It stays up for as long as the installer takes.
+    for _ in 0..(TOAST_SECS * 2.0 * 60.0) as usize {
+        ui.rt.frame(1.0 / 60.0);
+    }
+    assert_eq!(ui.toast(), "Installing Lucid Cats\u{2026}");
+    ui.click("install");
+    assert!(ui.rt.file_dialog().is_none() && ui.toast() == "Already installing Lucid Cats");
+
+    add_game(dest.parent().unwrap(), "Lucid Cats", 0);
+    fl.exit();
+    ui.settle();
+    assert_eq!(fl.count(), 2, "the fix runs once the game's installer is done");
+    assert_eq!(fl.0.borrow().0[1].exe, fix);
+    assert_eq!(ui.toast(), "Installing the online fix for Lucid Cats\u{2026}");
+
+    fl.exit();
+    ui.settle();
+    assert_eq!(ui.toast(), "Installed Lucid Cats");
+    assert_eq!(ui.card_names(), ["Lucid Cats"], "a game in the new library, not one called asterisk");
+    assert_eq!(ui.rt.state.selected.as_deref(), Some(dest.as_path()));
+    assert!(Config::load(&ui.paths()).libraries.contains(&dest.parent().unwrap().to_path_buf()));
+    assert!(ui.rt.state.installing.is_none());
+}
+
+/// A failed installer stops the install: its fix never runs over a half-installed game.
+#[test]
+fn a_failed_installer_stops_the_install() {
+    let mut ui = Ui::new(&[("Pong", 0)]);
+    ui.with_proton();
+    let fl = FakeLaunch::install(&mut ui);
+    let (setup, fix) = ui.downloads();
+    ui.rt.update(move |s, _| s.start_install(vec![setup, fix]));
+    ui.settle();
+    fl.0.borrow_mut().1.take().unwrap()(Err("exit status: 2".into()));
+    ui.settle();
+    assert_eq!(ui.toast(), "Install failed: setup.exe: exit status: 2");
+    assert_eq!(fl.count(), 1);
+    assert!(ui.rt.state.installing.is_none());
+
+    // One that exits cleanly having installed nothing fails too.
+    let (setup, fix) = ui.downloads();
+    ui.rt.update(move |s, _| s.start_install(vec![setup, fix]));
+    ui.settle();
+    fl.exit();
+    ui.settle();
+    assert!(ui.toast().contains("without installing anything"), "toast: {:?}", ui.toast());
+    assert_eq!(fl.count(), 2);
 }
 
 /// One relayout of a 40-game library at a new width (the app's share of a live resize) and

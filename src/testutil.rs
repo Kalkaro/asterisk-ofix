@@ -45,3 +45,9 @@ pub fn add_game(lib: &Path, folder: &str, real_id: u32) -> PathBuf {
     }
     dir
 }
+
+/// A stand-in for an Inno Setup installer: just the marker that tells it apart.
+pub fn inno_installer(path: &Path) -> PathBuf {
+    write(path, b"MZ\0\0Inno Setup Setup Data (5.5.0) (u)");
+    path.to_path_buf()
+}

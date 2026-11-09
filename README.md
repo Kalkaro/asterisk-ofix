@@ -29,6 +29,11 @@ Put your games in `~/Games`, or add another folder with **Add folder**. Any fold
 OnlineFix's files in it (`OnlineFix*.dll`/`.ini` or `SteamFix*.dll`/`.ini`) shows up as a
 game. **Add game** takes an `.exe` directly.
 
+**Install** (the arrow in the header) installs a game for you: pick the game's installer (a
+repack's `setup.exe`), then its online fix (or cancel to skip it). Both run silently through
+Proton, the game first and the fix after, into `~/Games/asterisk/<game>`. Inno Setup and NSIS
+installers work.
+
 Steam has to be running and logged in. If it isn't, Play starts it; press Play again once
 you're logged in.
 
@@ -47,6 +52,7 @@ There's also a command line, for scripts:
 ```sh
 asterisk-ofix --launch ~/Games/SomeGame          # start a game and wait for it to exit
 asterisk-ofix --launch path/to/game.exe --print  # show the command instead of running it
+asterisk-ofix --install 'Game v1.0 by Someone/setup.exe' Game-Fix.exe  # install both silently
 ```
 
 ## Building

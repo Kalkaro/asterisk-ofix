@@ -1,7 +1,7 @@
 //! The window: the game library, a page for one game, and status toasts.
 //!
 //! `App` holds all state; `view.rs` draws it. Work that finishes on other threads (artwork,
-//! games exiting) lands in `Inbox` and is picked up by `poll` on the UI thread.
+//! games and installers exiting) lands in `Inbox` and is picked up by `poll` on the UI thread.
 
 pub mod i18n;
 #[cfg(test)]
@@ -12,6 +12,7 @@ mod view;
 use crate::art::{ArtStore, Endpoints, has_art};
 use crate::background::Background;
 use crate::config::{Config, GameSettings};
+use crate::install::Plan;
 use crate::launch::{LaunchSpec, OnExit, build_spec, first_non_empty, stop_game};
 use crate::paths::Paths;
 use crate::scan::{Game, game_from_exe, scan_libraries};
@@ -69,6 +70,8 @@ pub struct App {
     /// Running games the user pressed Stop on.
     pub stopping: HashSet<PathBuf>,
     pub logs: HashMap<PathBuf, PathBuf>,
+    /// The game being installed, and which of its installers is running.
+    pub installing: Option<(Plan, usize)>,
     pub form: Form,
     /// The open dropdown on the page.
     pub open_select: Option<&'static str>,
@@ -114,6 +117,8 @@ pub struct Toast {
 struct Inbox {
     art: Vec<u32>,
     exits: Vec<(PathBuf, String, Result<(), String>)>,
+    /// How each installer ended.
+    installs: Vec<Result<(), String>>,
 }
 
 impl App {
@@ -145,6 +150,7 @@ impl App {
             running: HashSet::new(),
             stopping: HashSet::new(),
             logs: HashMap::new(),
+            installing: None,
             form: Form::default(),
             open_select: None,
             toast: None,
@@ -198,8 +204,11 @@ impl App {
     /// Picks up what other threads finished; true when anything visible changed.
     pub fn poll(&mut self, now: f64, _tx: &mut Tx) -> bool {
         self.now = now;
-        let Inbox { art, exits } = std::mem::take(&mut *lock(&self.inbox));
-        let mut changed = !art.is_empty() || !exits.is_empty();
+        let Inbox { art, exits, installs } = std::mem::take(&mut *lock(&self.inbox));
+        let mut changed = !art.is_empty() || !exits.is_empty() || !installs.is_empty();
+        for result in installs {
+            self.install_step_done(result);
+        }
         for id in art {
             self.show_art(id);
         }
@@ -557,11 +566,101 @@ impl App {
     }
 
     pub fn add_library(&mut self, dir: PathBuf) {
-        if !self.cfg.libraries.contains(&dir) {
-            self.cfg.libraries.push(dir);
+        if self.cfg.add_library(dir) {
             self.save();
         }
         self.rescan();
+    }
+
+    /// Asks for a game's installer, then for its online fix, and installs them silently,
+    /// the game first.
+    pub fn install(&mut self, tx: &mut Tx) {
+        if let Some((plan, _)) = &self.installing {
+            return self.set_status(fill(self.t().already_installing, &[&plan.name]));
+        }
+        let t = self.t();
+        let options = FileDialogOptions { title: t.install_game_title.into(), ..Default::default() }
+            .filter(t.windows_programs, &["exe", "EXE"]);
+        tx.open_file(options, |s: &mut App, result, tx| match result {
+            Ok(Some(setup)) => {
+                // Fixes are usually downloaded beside the repack's folder.
+                let dir = setup.parent().and_then(Path::parent).map(Path::to_path_buf);
+                let t = s.t();
+                let options =
+                    FileDialogOptions { title: t.install_fix_title.into(), directory: dir, ..Default::default() }
+                        .filter(t.windows_programs, &["exe", "EXE"]);
+                tx.open_file(options, move |s: &mut App, result, _| match result {
+                    Ok(fix) => s.start_install(std::iter::once(setup).chain(fix).collect()),
+                    Err(e) => s.set_status(fill(s.t().file_picker_failed, &[&e])),
+                });
+            }
+            Ok(None) => {}
+            Err(e) => s.set_status(fill(s.t().file_picker_failed, &[&e])),
+        });
+    }
+
+    /// Installs the game from `files`, its installer and online fixes in any order, into
+    /// ~/Games/asterisk.
+    pub fn start_install(&mut self, files: Vec<PathBuf>) {
+        let t = self.t();
+        if self.installing.is_some() {
+            return;
+        }
+        if self.launcher.is_none() {
+            return self.set_status(t.no_steam);
+        }
+        match crate::install::plan(&self.paths, &files) {
+            Ok(plan) => {
+                self.installing = Some((plan, 0));
+                self.run_install_step();
+            }
+            Err(e) => self.set_status(fill(t.install_failed, &[&e])),
+        }
+    }
+
+    /// Starts the current installer of the game being installed.
+    fn run_install_step(&mut self) {
+        let t = self.t();
+        let (Some((plan, step)), Some(launcher)) = (&self.installing, &self.launcher) else { return };
+        let Some(proton) = self.protons.iter().find(|p| p.name == self.default_proton) else {
+            self.installing = None;
+            return self.set_status(fill(t.install_failed, &[&t.no_proton]));
+        };
+        let spec = plan.spec(&self.paths, *step, proton);
+        let (inbox, wake) = (self.inbox.clone(), self.wake());
+        let on_exit: OnExit = Box::new(move |result| {
+            lock(&inbox).installs.push(result);
+            wake();
+        });
+        let message = if plan.steps[*step].is_fix { t.installing_fix } else { t.installing };
+        let message = fill(message, &[&plan.name]);
+        match launcher(&spec, on_exit) {
+            Ok(_) => self.set_progress(message),
+            Err(e) => {
+                self.installing = None;
+                self.set_status(fill(t.install_failed, &[&e]));
+            }
+        }
+    }
+
+    /// An installer ended: the next one starts, or the game is in the library.
+    fn install_step_done(&mut self, result: Result<(), String>) {
+        let t = self.t();
+        let Some((plan, step)) = self.installing.take() else { return };
+        let exe = crate::scan::file_name(&plan.steps[step].exe);
+        if let Err(e) = result.map_err(|e| format!("{exe}: {e}")).and_then(|()| plan.check(step)) {
+            return self.set_status(fill(t.install_failed, &[&e]));
+        }
+        if step + 1 < plan.steps.len() {
+            self.installing = Some((plan, step + 1));
+            return self.run_install_step();
+        }
+        if let Some(library) = plan.dest.parent() {
+            self.add_library(library.to_path_buf());
+        }
+        self.close_search();
+        self.open_page(&plan.dest);
+        self.set_status(fill(t.installed, &[&plan.name]));
     }
 
     pub fn add_game(&mut self, tx: &mut Tx) {
@@ -619,8 +718,17 @@ impl App {
 
     /// Shows a message in a toast that hides itself after a while.
     pub fn set_status(&mut self, text: impl Into<String>) {
+        self.show_toast(text.into(), self.now + TOAST_SECS);
+    }
+
+    /// Shows a message that stays up until the next one replaces it.
+    pub fn set_progress(&mut self, text: impl Into<String>) {
+        self.show_toast(text.into(), f64::INFINITY);
+    }
+
+    fn show_toast(&mut self, text: String, until: f64) {
         let seq = self.toast.as_ref().map_or(0, |t| t.seq + 1);
-        self.toast = Some(Toast { text: text.into(), seq, until: self.now + TOAST_SECS });
+        self.toast = Some(Toast { text, seq, until });
     }
 }
 
@@ -647,7 +755,8 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// Toasts and a page's opening moment schedule their own end; `poll` runs then.
 fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let ends = [s.toast.as_ref().map_or(0.0, |t| t.until), s.opening_until];
-    if let Some(end) = ends.into_iter().filter(|&end| end > now).reduce(f64::min) {
+    // A progress toast never ends by itself.
+    if let Some(end) = ends.into_iter().filter(|&end| end > now && end.is_finite()).reduce(f64::min) {
         tx.wake_after(Duration::from_secs_f64(end - now));
     }
     s.poll(now, tx)
