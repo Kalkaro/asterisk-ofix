@@ -234,7 +234,6 @@ fn header(s: &App, k: &Kit, width: f32, layer: &mut Vec<El>) -> El {
             IconButton::new(&REFRESH)
                 .label(t.rescan)
                 .help(t.rescan_help)
-                .variant(IconButtonVariant::Ghost)
                 .on_press(App::rescan)
                 .build(k)
                 .key("rescan"),
@@ -924,8 +923,9 @@ impl Menu {
                 .min_h(0.0)
                 .padding(2.0)
                 .radius(10.0)
-                .fill(RAISED)
-                .border(1.0, Color::WHITE.alpha(0.08))
+                // Coloured like the buttons, edge and all (`menus_match_the_buttons`).
+                .fill(k.c.bg_button_neutral)
+                .border(1.0, k.c.border_base)
                 .shadow(10.0, 30.0, Color::BLACK.alpha(0.6))
                 .clip_rounded(10.0)
                 .anchored_fit(format!("{key}-trigger"), Side::Bottom, Align::Start, 4.0)

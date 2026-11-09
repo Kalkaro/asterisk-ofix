@@ -765,6 +765,32 @@ fn choosing_the_default_proton_saves_nothing() {
     assert!(!Config::load(&ui.paths()).games.contains_key(&root));
 }
 
+/// The header's buttons, the reload button among them, and the dropdown menus are all one
+/// colour: the menus were a lighter grey, and the reload button had no fill at all.
+#[test]
+fn menus_match_the_buttons() {
+    let mut ui = Ui::new(&[("Pong", 0)]);
+    let fill = |ui: &Ui, key: &str| ui.find(key).unwrap_or_else(|| panic!("no {key:?}")).fill;
+    let button = fill(&ui, "install");
+    assert!(button.a > 0.0, "the buttons are filled");
+    assert_eq!(fill(&ui, "rescan"), button, "the reload button is framed like the others");
+    assert_eq!(fill(&ui, "language-trigger"), button);
+    ui.click("language-trigger");
+    ui.settle();
+    assert_eq!(fill(&ui, "language-menu"), button, "the language menu");
+
+    ui.key(Key::Escape);
+    let root = ui.game("Pong");
+    ui.rt.update(move |s, _| {
+        s.open_page(&root);
+        s.options_open = true;
+    });
+    ui.settle();
+    ui.click("proton-trigger");
+    ui.settle();
+    assert_eq!(fill(&ui, "proton-menu"), button, "the Proton menu");
+}
+
 /// The kit's dropdown menu hung off the right end of its field, 160 points wide, and cut
 /// long Proton names short. The menu sits under the field's left edge, as wide as the field.
 #[test]
