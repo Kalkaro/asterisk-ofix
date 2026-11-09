@@ -20,7 +20,7 @@ hbfont = hb.Font(hb.Face(blob))
 buf = hb.Buffer()
 buf.add_str(text)
 buf.guess_segment_properties()
-hb.shape(hbfont, buf, {})
+hb.shape(hbfont, buf, {"liga": False, "clig": False})  # "fi" as two letters
 order = ft.getGlyphOrder()
 
 scale = size / upem
