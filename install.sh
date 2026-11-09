@@ -52,7 +52,7 @@ main() {
 Type=Application
 Name=asterisk-ofix
 GenericName=Game Launcher
-Comment=Launch OnlineFix games through Proton with the Steam overlay
+Comment=Launch Steam Fix / Online Fix games through Proton with the Steam overlay
 Exec=$exec
 Icon=asterisk-ofix
 Terminal=false

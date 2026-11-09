@@ -1,6 +1,6 @@
 <p align="center"><img src="docs/logo.svg" alt="aster*sk" width="640"></p>
 
-<h1 align="center">Run games with OnlineFix on Linux</h1>
+<h1 align="center">Run games with a Steam Fix / Online Fix on Linux</h1>
 
 ![The library, with the pointer over a game](docs/preview.png)
 
@@ -25,8 +25,8 @@ It needs a native Steam install; Flatpak and Snap Steam aren't supported.
 
 ## Usage
 
-Put your games in `~/Games`, or add another folder with **Add folder**. Any folder with
-OnlineFix's files in it (`OnlineFix*.dll`/`.ini` or `SteamFix*.dll`/`.ini`) shows up as a
+Put your games in `~/Games`, or add another folder with **Add folder**. Any folder with a
+Steam Fix / Online Fix in it (`SteamFix*.dll`/`.ini` or `OnlineFix*.dll`/`.ini`) shows up as a
 game. **Add game** takes an `.exe` directly.
 
 **Install** installs a game for you: choose the game's installer (a repack's `setup.exe`) and

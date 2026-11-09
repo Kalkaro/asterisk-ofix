@@ -1,4 +1,4 @@
-//! asterisk-ofix launches OnlineFix games directly through Proton with the Steam overlay attached,
+//! asterisk-ofix launches Steam Fix / Online Fix games directly through Proton with the Steam overlay attached,
 //! without adding them to Steam.
 
 mod art;
@@ -63,7 +63,7 @@ fn launch_cli(target: &Path, prefix: Option<PathBuf>, print: bool) -> Result<(),
     let steam = steam::detect(&paths.home).ok_or("Steam installation not found")?;
     let target = std::path::absolute(target).map_err(|e| e.to_string())?;
     let game = if target.is_dir() {
-        scan::detect_game(&target).ok_or_else(|| format!("no OnlineFix files found in {}", target.display()))?
+        scan::detect_game(&target).ok_or_else(|| format!("no Steam Fix / Online Fix files found in {}", target.display()))?
     } else {
         scan::game_from_exe(&target)
     };

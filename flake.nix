@@ -1,5 +1,5 @@
 {
-  description = "asterisk-ofix - launch OnlineFix games through Proton with the Steam overlay";
+  description = "asterisk-ofix - launch Steam Fix / Online Fix games through Proton with the Steam overlay";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

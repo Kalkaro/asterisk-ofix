@@ -539,7 +539,7 @@ fn empty(s: &App, k: &Kit) -> El {
         .gap(8.0)
         .child(icon(&EMPTY, 64.0).color(FAINT))
         .child(text(heading).key("empty-heading").font(SUBHEADING).color(TEXT))
-        .child(text(body).font(BODY).color(MUTED).align(rune::Align::Center));
+        .child(text(body).key("empty-body").font(BODY).color(MUTED).align(rune::Align::Center));
     if none {
         c = c.child(
             row()

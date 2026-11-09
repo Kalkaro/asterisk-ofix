@@ -228,6 +228,22 @@ fn empty_library_offers_to_add_games() {
     assert!(ui.find("empty-actions").is_some());
 }
 
+/// The empty library says which games it finds, by both fixes' names, and the longer text
+/// still fits the narrowest window in every language (it doesn't wrap).
+#[test]
+fn empty_library_names_both_fixes_and_fits() {
+    let mut ui = Ui::new(&[]);
+    ui.resize(MIN_WINDOW.0, 600.0);
+    for lang in Lang::ALL {
+        ui.rt.update(move |s, _| s.lang = lang);
+        ui.settle();
+        let body = ui.text("empty-body");
+        assert!(body.contains("Steam Fix / Online Fix") && !body.contains("OnlineFix"), "{lang:?}: {body:?}");
+        let [x, _, w, _] = ui.rect("empty-body");
+        assert!(x >= 16.0 && x + w <= MIN_WINDOW.0 - 16.0, "{lang:?}: the text runs from {x} to {}", x + w);
+    }
+}
+
 #[test]
 fn search_is_hidden_until_you_type() {
     let mut ui = Ui::new(&[("Hidden Road", 0), ("Hatch", 0), ("Pong", 0)]);

@@ -90,7 +90,7 @@ impl Steam {
 
     /// The command that starts the game, mirroring what Steam does for a Proton game: run the
     /// `proton` script inside the Steam Linux Runtime, with the overlay preloaded and the
-    /// Steam game IDs set to OnlineFix's fake app ID.
+    /// Steam game IDs set to the fix's fake app ID.
     pub fn launch_command(&self, spec: &LaunchSpec) -> Result<LaunchCommand, String> {
         self.launch_command_from(spec, std::env::vars_os().map(|(k, v)| lossy(k, v)).collect())
     }
@@ -251,7 +251,7 @@ pub fn build_spec(
     };
     let proton_name = first_non_empty(&s.proton, default_proton);
     let proton = protons.iter().rev().find(|p| p.name == proton_name).or(protons.first()).cloned().unwrap_or_default();
-    // Spacewar, what OnlineFix uses.
+    // Spacewar, what Steam Fix / Online Fix use.
     let fake_app_id = [s.fake_app_id, g.fake_id].into_iter().find(|&id| id != 0).unwrap_or(480);
     let overrides = match s.overrides.as_str() {
         "" => crate::scan::dll_overrides(exe.parent().unwrap_or(Path::new("/"))),
@@ -361,7 +361,7 @@ const SECRET_PREFIXES: &[&str] =
     &["sk-", "sk_", "ghp_", "gho_", "ghs_", "ghu_", "github_pat_", "glpat-", "xoxb-", "xoxp-", "AKIA", "AIza"];
 
 /// Whether an environment entry looks like a credential (or an agent socket) that a game
-/// has no business seeing. OnlineFix games are untrusted Windows binaries, and the
+/// has no business seeing. Steam Fix / Online Fix games are untrusted Windows binaries, and the
 /// environment they'd otherwise inherit is the user's whole session.
 pub fn is_secret_env(name: &str, value: &str) -> bool {
     if matches!(name, "SSH_AUTH_SOCK" | "SSH_AGENT_PID" | "GPG_AGENT_INFO") {

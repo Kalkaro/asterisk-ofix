@@ -1,9 +1,9 @@
-//! Finding OnlineFix / SteamFix games in library folders.
+//! Finding Steam Fix / Online Fix games in library folders.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-/// Files dropped next to the game executable by OnlineFix (old and new style).
+/// Files dropped next to the game executable by Steam Fix / Online Fix (old and new style).
 const MARKERS: &[&str] =
     &["onlinefix.ini", "onlinefix64.dll", "onlinefix.dll", "steamfix.ini", "steamfix64.dll", "steamfix.dll"];
 
@@ -20,10 +20,10 @@ const NATIVE_DLLS: &[&str] = &[
     "dnet",
 ];
 
-/// Proxy DLLs OnlineFix injects itself through: native first, builtin fallback.
+/// Proxy DLLs the fix injects itself through: native first, builtin fallback.
 const PROXY_DLLS: &[&str] = &["winmm", "winhttp", "version"];
 
-/// The string from the usual OnlineFix-on-Linux guides.
+/// The string from the usual Online Fix on Linux guides.
 pub const FALLBACK_OVERRIDES: &str = "OnlineFix64=n;SteamOverlay64=n;winmm=n,b;dnet=n;steam_api64=n;winhttp=n,b";
 
 const EXE_BLOCKLIST: &[&str] = &[
@@ -48,7 +48,7 @@ pub struct Game {
     pub name: String,
     /// The top-level game folder, also the key its settings are saved under.
     pub root: PathBuf,
-    /// The folder holding the OnlineFix files.
+    /// The folder holding the Steam Fix / Online Fix files.
     pub fix_dir: PathBuf,
     pub exes: Vec<PathBuf>,
     pub real_id: u32,
@@ -75,7 +75,7 @@ pub fn scan_libraries(libs: &[PathBuf]) -> Vec<Game> {
     games
 }
 
-/// Looks for OnlineFix files in `root` or a few levels below it.
+/// Looks for Steam Fix / Online Fix files in `root` or a few levels below it.
 pub fn detect_game(root: &Path) -> Option<Game> {
     let fix_dir = find_fix_dir(root, 3)?;
     let mut exes = exe_candidates(&fix_dir);
@@ -158,7 +158,7 @@ fn read_fix_ini(dir: &Path) -> (u32, u32) {
         match (section.as_str(), k.trim().to_lowercase().as_str()) {
             ("main", "realappid") => real = n,
             ("main", "fakeappid") => fake = n,
-            // Written by an older third-party OnlineFix launcher.
+            // Written by an older third-party Online Fix launcher.
             ("onlinefix linux", "realappid") => linux_real = n,
             _ => {}
         }

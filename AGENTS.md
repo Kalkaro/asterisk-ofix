@@ -1,7 +1,7 @@
 # AGENTS.md
 
 asterisk-ofix is a Rust app on the [Rune](https://github.com/anomalyco/rune) GUI framework
-that launches OnlineFix / SteamFix games directly through Proton with the Steam overlay. See
+that launches Steam Fix / Online Fix games directly through Proton with the Steam overlay. See
 README.md for how launching works.
 
 ## Commit after every finished change

@@ -3,7 +3,7 @@ name = "asterisk-ofix"
 version = "0.1.1"
 edition = "2024"
 license = "MIT"
-description = "Launch OnlineFix / SteamFix games through Proton with the Steam overlay"
+description = "Launch Steam Fix / Online Fix games through Proton with the Steam overlay"
 
 [dependencies]
 rune = { git = "https://github.com/anomalyco/rune", rev = "3e0cf8fe58d592cdda1ec5533461192edcfcdb47", features = ["native-file-dialog"] }
