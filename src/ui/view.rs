@@ -155,7 +155,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
                 .blur(BG_BLUR)
                 .inert(),
         )
-        .children(s.current().and_then(|g| hero(s, g, backdrop[0])))
+        .children(hero(s, backdrop[0]))
         .child(content)
         .children(s.search_open.then(|| search_bar(s, &k, size[0])))
         .children(s.toast.as_ref().map(|t| toast(&t.text, t.seq, size[0], s.search_open)));
@@ -393,8 +393,11 @@ fn search_bar(s: &App, k: &Kit, window_w: f32) -> El {
 /// The open game's hero art, faint behind the header and the top of its page, fading into
 /// the starfield. Sized with the backdrop's chunks and pinned top-left, so a live resize rarely
 /// moves it.
-fn hero(s: &App, g: &Game, width: f32) -> Option<El> {
-    let img = s.images.get(&g.real_id).and_then(|i| i.hero.as_ref())?;
+/// The open game's hero art, faint behind the page. It stays mounted after the page closes
+/// and fades out in place: Rune paints a removed element above everything else while it
+/// fades, so the hero tinted the header's buttons with the game's colours.
+fn hero(s: &App, width: f32) -> Option<El> {
+    let img = s.images.get(&s.hero_id?).and_then(|i| i.hero.as_ref())?;
     let h = (width / HERO_ASPECT).round();
     Some(
         el().key("hero")
@@ -402,6 +405,9 @@ fn hero(s: &App, g: &Game, width: f32) -> Option<El> {
             .size(width, h)
             .inert()
             .clip_fade_linear(0.0, 0.0, 0.0, (h * 0.7).round())
+            .opacity(if s.current().is_some() { 1.0 } else { 0.0 })
+            .opacity_motion(FADE)
+            // Fades in the first time a page opens.
             .transition(Transition::opacity().springs(FADE))
             .child(
                 el().key("hero-art")

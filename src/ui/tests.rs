@@ -1510,3 +1510,44 @@ fn asterisk_drop_from_font_metrics() {
     assert!(asterisk_drop(40.0, 22.0) > asterisk_drop(22.0, 22.0));
     assert_eq!(asterisk_drop(40.0, 22.0).round(), 8.0);
 }
+
+/// Closing a page fades its hero out where it was, behind the UI. Rune paints a removed
+/// element above everything while it fades, so the hero used to tint the header's buttons
+/// with the game's colours.
+#[test]
+fn page_hero_fades_out_under_the_header() {
+    let store = fake::start(&[(1000002, "Zebra Party")]);
+    let mut ui = Ui::with_store(&[("Aardvark", 1000002), ("Middle", 0)], store);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while ui.rt.state.images.get(&1000002).is_none_or(|i| i.hero.is_none()) {
+        assert!(std::time::Instant::now() < deadline, "timed out waiting for artwork");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        ui.rt.frame(1.0 / 60.0);
+    }
+    let root = ui.game("Aardvark");
+    ui.rt.update(move |s, _| s.open_page(&root));
+    ui.settle();
+    let opacity = |ui: &Ui| ui.find("hero").map_or(0.0, |e| e.opacity);
+    assert!(opacity(&ui) > 0.99);
+
+    ui.rt.update(|s, _| s.close_page());
+    let mut last = 1.0;
+    for f in 0..8 {
+        ui.rt.frame(1.0 / 60.0);
+        assert!(ui.leaving("hero").is_none(), "frame {f}: the hero was removed, so it paints over the header");
+        let order: Vec<_> = ui.elements().into_iter().filter_map(|e| e.key).collect();
+        let pos = |k: &str| order.iter().position(|x| x == k).unwrap();
+        assert!(pos("hero") < pos("header"), "frame {f}: the hero paints over the header");
+        let now = opacity(&ui);
+        assert!(now < last, "frame {f}: the hero fades ({now})");
+        last = now;
+    }
+    ui.settle();
+    assert!(opacity(&ui) < 0.01, "the hero has faded out");
+
+    // Opening the page again brings it back.
+    let root = ui.game("Aardvark");
+    ui.rt.update(move |s, _| s.open_page(&root));
+    ui.settle();
+    assert!(opacity(&ui) > 0.99);
+}

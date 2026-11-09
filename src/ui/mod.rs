@@ -79,6 +79,9 @@ pub struct App {
     pub open_select: Option<&'static str>,
     /// How many times the reload button was pressed: its icon turns once for each.
     pub reload_turns: u32,
+    /// The Steam app whose hero art is behind the last page opened. It stays after the page
+    /// closes, so the hero fades out in place (`page_hero_fades_out_under_the_header`).
+    pub hero_id: Option<u32>,
     pub toast: Option<Toast>,
     /// The UI's language: the one picked in the header's menu, or the system's.
     pub lang: Lang,
@@ -166,6 +169,7 @@ impl App {
             form: Form::default(),
             open_select: None,
             reload_turns: 0,
+            hero_id: None,
             toast: None,
             lang,
             now: 0.0,
@@ -426,6 +430,7 @@ impl App {
             self.open_select = None;
             self.load_form();
         }
+        self.hero_id = self.current().map(|g| g.real_id);
     }
 
     pub fn close_page(&mut self) {
