@@ -1,6 +1,7 @@
 //! asterofix launches Steam Fix / Online Fix games directly through Proton with the Steam overlay attached,
 //! without adding them to Steam.
 
+mod applog;
 mod art;
 mod background;
 mod config;

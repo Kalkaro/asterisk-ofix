@@ -226,9 +226,25 @@ fn log_is_private_and_redacted() {
     // A secret the name check misses still never reaches the log.
     assert!(!data.contains("pw123") && data.contains(r#"DATABASE_URL="$DATABASE_URL""#), "{data}");
     assert!(data.contains("DISPLAY=:0"), "{data}");
-    for (p, want) in [(&path, 0o600), (&dir, 0o700)] {
+    // It says which asterofix started it, and when.
+    let first = data.lines().next().unwrap();
+    assert!(
+        first.starts_with(&format!("# asterofix {}, ", crate::applog::VERSION)) && first.ends_with(" UTC"),
+        "{data}"
+    );
+    // The log it replaced is kept, private too.
+    let prev = crate::launch::prev_log_path(&path);
+    assert_eq!(prev, dir.join("Cool_Game.prev.log"));
+    assert_eq!(std::fs::read_to_string(&prev).unwrap(), "old");
+    for (p, want) in [(&path, 0o600), (&dir, 0o700), (&prev, 0o600)] {
         assert_eq!(std::fs::metadata(p).unwrap().permissions().mode() & 0o777, want, "{}", p.display());
     }
+
+    // How the game ended goes at the end.
+    crate::launch::finish_log(&path, &Err("exit status: 3".into())).unwrap();
+    let data = std::fs::read_to_string(&path).unwrap();
+    let last = data.lines().last().unwrap();
+    assert!(last.starts_with("# exited with exit status: 3, ") && last.ends_with(" UTC"), "{data}");
 }
 
 /// "Copy command" and logs printed the user's whole session environment, values and all,

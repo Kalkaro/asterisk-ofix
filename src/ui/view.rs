@@ -226,7 +226,12 @@ fn header(s: &App, k: &Kit, width: f32, layer: &mut Vec<El>) -> El {
                 .color(TEXT)
                 .offset(0.0, asterisk_drop(LOGO.size, PAGE_TITLE.size).round())
                 // The glyph's side bearings already space it; the row's gap would double that.
-                .mr(-7.0),
+                .mr(-7.0)
+                .role("button")
+                .label(t.copy_diagnostics)
+                .help(t.copy_diagnostics)
+                .cursor(Cursor::Pointer)
+                .on_press_tx(App::copy_diagnostics),
         )
         .child(text(t.library).key("library-title").font(PAGE_TITLE).color(TEXT))
         .child(text(count).key("count").font(CAPTION_STRONG).color(MUTED).px(8.0).py(2.0).radius(10.0).fill(RAISED))

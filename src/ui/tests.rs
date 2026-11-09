@@ -186,12 +186,15 @@ impl FakeLaunch {
     fn install(ui: &mut Ui) -> FakeLaunch {
         let fake = FakeLaunch::default();
         let record = fake.clone();
+        let logs = ui.home.path().join("fake-logs");
         ui.rt.state.steam_running = || true;
         ui.rt.state.launcher = Some(Box::new(move |spec: &LaunchSpec, on_exit: OnExit| {
             let mut r = record.0.borrow_mut();
             r.0.push(spec.clone());
             r.1 = Some(on_exit);
-            Ok(PathBuf::from("/nonexistent/fake.log"))
+            let log = logs.join(format!("{}.log", spec.name));
+            crate::testutil::write(&log, format!("$ {}\n", spec.exe.display()));
+            Ok(log)
         }));
         let stops = fake.1.clone();
         ui.rt.state.stopper = Box::new(move |root: &Path| {
@@ -358,6 +361,37 @@ fn double_click_plays() {
     ui.settle();
     assert!(ui.find("running").is_none(), "the badge goes once the game exits");
     assert_eq!(ui.toast(), "Pong exited");
+}
+
+/// Pressing the logo copies what a bug report needs: the version, the system, the last game
+/// launched and how it ended, with the ends of its log and of asterofix's own, home as `~`.
+#[test]
+fn logo_copies_diagnostics() {
+    let mut ui = Ui::new(&[("Pong", 0)]);
+    let fl = FakeLaunch::install(&mut ui);
+    let card = ui.card("Pong");
+    ui.double_click(&card);
+    ui.key(Key::Escape);
+    fl.killed();
+    ui.settle();
+
+    ui.click("logo");
+    ui.settle();
+    assert!(ui.toast().starts_with("Diagnostics copied"), "toast: {:?}", ui.toast());
+    let d = ui.rt.state.diagnostics();
+    assert!(d.starts_with(&format!("**asterofix {}**", crate::applog::VERSION)), "{d}");
+    for want in [
+        "- System: ",
+        "- Game: Pong (not on Steam), ~/Games/Pong/Pong.exe with ",
+        "Pong's log, last 40 lines:\n````\n$ ~/Games/Pong/Pong.exe\n\n# exited with signal: 15 (SIGTERM), ",
+        "Launching Pong: ~/Games/Pong/Pong.exe",
+        "Pong exited with signal: 15 (SIGTERM)",
+        "Shown: Diagnostics copied",
+    ] {
+        assert!(d.contains(want), "missing {want:?} in:\n{d}");
+    }
+    let home = ui.home.path().to_str().unwrap().to_owned();
+    assert!(!d.contains(&home), "the home folder shows as ~:\n{d}");
 }
 
 /// Folders that differ only in punctuation got the same card key (both slugged to

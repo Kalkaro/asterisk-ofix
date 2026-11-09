@@ -9,6 +9,7 @@ mod tests;
 mod theme;
 mod view;
 
+use crate::applog::{AppLog, Host, VERSION};
 use crate::art::{ArtStore, Endpoints, has_art};
 use crate::background::Background;
 use crate::config::{Config, GameSettings};
@@ -40,6 +41,12 @@ pub type Stopper = Box<dyn Fn(&Path) -> usize>;
 
 pub struct App {
     pub paths: Paths,
+    /// asterofix's own log, for bug reports.
+    pub log: Arc<AppLog>,
+    /// The machine, for the log and diagnostics; set by `run`.
+    pub host: Host,
+    /// The game launched last, which diagnostics describe when no page is open.
+    pub last_launched: Option<PathBuf>,
     pub steam: Option<Steam>,
     pub protons: Vec<Proton>,
     pub default_proton: String,
@@ -147,7 +154,17 @@ impl App {
         });
         let (cfg, cfg_warning) = Config::open(&paths);
         let lang = Lang::from_code(&cfg.language).unwrap_or(system);
+        let log = Arc::new(AppLog::open(&paths));
+        log.line(format!("asterofix {VERSION} started"));
+        match &steam {
+            Some(steam) => log.line(format!("Steam: {}", steam.root.display())),
+            None => log.line("Steam: not found"),
+        }
+        log.line(format!("Proton: {}", proton_summary(&protons, &default_proton)));
         let mut app = App {
+            log,
+            host: Host::default(),
+            last_launched: None,
             cfg,
             art: ArtStore::new(&paths, steam.as_ref().map(|s| s.root.as_path()), endpoints),
             images: HashMap::new(),
@@ -192,6 +209,13 @@ impl App {
         app
     }
 
+    /// Sets the machine's details, and logs them.
+    pub fn set_host(&mut self, host: Host) {
+        let appimage = if host.appimage { ", AppImage" } else { "" };
+        self.log.line(format!("System: {} (kernel {}), {}{appimage}", host.os, host.kernel, host.session));
+        self.host = host;
+    }
+
     /// Runs once the window exists, with the waker other threads use to reach it.
     pub fn setup(&mut self, waker: Waker) {
         self.image_cache = Some(ImageCache::new(waker.clone()));
@@ -226,6 +250,14 @@ impl App {
         for (root, name, result) in exits {
             self.running.remove(&root);
             let t = self.t();
+            let stopped = if self.stopping.contains(&root) { ", stopped from asterofix" } else { "" };
+            match &result {
+                Ok(()) => self.log.line(format!("{name} exited normally{stopped}")),
+                Err(e) => self.log.line(format!("{name} exited with {e}{stopped}")),
+            }
+            if let Some(log) = self.logs.get(&root) {
+                let _ = crate::launch::finish_log(log, &result);
+            }
             match result {
                 // Killed, so it "failed", but that's what Stop asked for.
                 _ if self.stopping.remove(&root) => self.set_status(fill(t.stopped, &[&name])),
@@ -336,6 +368,8 @@ impl App {
         }
         self.games = games;
         self.sort_games();
+        let (libraries, manual) = (self.cfg.libraries.len(), self.cfg.manual_exes.len());
+        self.log.line(format!("Library: {} games, from {libraries} folders and {manual} added .exe", self.games.len()));
         if self.selected.as_ref().is_some_and(|root| self.game(root).is_none()) {
             self.selected = None;
         }
@@ -550,10 +584,20 @@ impl App {
             lock(&inbox).exits.push((game_root, name, result));
             wake();
         });
+        let line = format!(
+            "Launching {}: {} with {}, prefix {}",
+            spec.name,
+            spec.exe.display(),
+            spec.proton.name,
+            spec.prefix.display()
+        );
+        self.log.line(line);
         match launcher(&spec, on_exit) {
             Ok(log) => {
+                self.log.line(format!("{}'s log: {}", spec.name, log.display()));
                 self.logs.insert(g.root.clone(), log);
                 self.running.insert(g.root.clone());
+                self.last_launched = Some(g.root.clone());
                 self.set_status(fill(t.launched, &[&spec.name, &spec.proton.name]));
             }
             Err(e) => self.set_status(fill(t.launch_failed, &[&e])),
@@ -582,6 +626,53 @@ impl App {
                 self.set_status(self.t().command_copied);
             }
             Err(e) => self.set_status(e),
+        }
+    }
+
+    /// The logo: copies what a bug report needs (`diagnostics`).
+    pub fn copy_diagnostics(&mut self, tx: &mut Tx) {
+        tx.copy(self.diagnostics());
+        self.set_status(self.t().diagnostics_copied);
+    }
+
+    /// What a bug report needs, as Markdown to paste into one: asterofix's version, the
+    /// system, what it found, the open (or last launched) game, and the ends of that game's
+    /// log and of asterofix's own. In English, whatever the UI's language. The home folder
+    /// shows as `~`; the logs keep secrets out already (`open_log`).
+    pub fn diagnostics(&self) -> String {
+        const LINES: usize = 40;
+        let h = &self.host;
+        let appimage = if h.appimage { ", AppImage" } else { "" };
+        let steam = self.steam.as_ref().map_or("not found".into(), |s| s.root.display().to_string());
+        let mut out = format!("**asterofix {VERSION}**\n\n");
+        out += &format!("- System: {} (kernel {}), {}{appimage}\n", h.os, h.kernel, h.session);
+        out += &format!("- Steam: {steam}\n");
+        out += &format!("- Proton: {}\n", proton_summary(&self.protons, &self.default_proton));
+        out += &format!("- Library: {} games\n", self.games.len());
+        out += &format!("- Language: {}\n", self.lang.code());
+        let game = self.current().or_else(|| self.last_launched.as_deref().and_then(|root| self.game(root)));
+        if let Some(g) = game {
+            let name = self.display_name(g);
+            let id = if has_art(g.real_id) { format!("Steam app {}", g.real_id) } else { "not on Steam".into() };
+            out += &match self.spec_for(g) {
+                Ok(spec) => format!(
+                    "- Game: {name} ({id}), {} with {}, prefix {}\n",
+                    spec.exe.display(),
+                    spec.proton.name,
+                    spec.prefix.display()
+                ),
+                Err(e) => format!("- Game: {name} ({id}), which can't launch: {e}\n"),
+            };
+            if let Some(tail) = self.log_for(g).and_then(|log| crate::applog::tail(&log, LINES)) {
+                out += &format!("\n{name}'s log, last {LINES} lines:\n{}", fenced(&tail));
+            }
+        }
+        if let Some(tail) = crate::applog::tail(self.log.path(), LINES) {
+            out += &format!("\nasterofix's log, last {LINES} lines:\n{}", fenced(&tail));
+        }
+        match self.paths.home.to_str().filter(|h| h.len() > 1) {
+            Some(home) => out.replace(&format!("{home}/"), "~/"),
+            None => out,
         }
     }
 
@@ -701,8 +792,13 @@ impl App {
         });
         let message = if plan.steps[*step].is_fix { t.installing_fix } else { t.installing };
         let message = fill(message, &[&plan.name]);
+        let exe = plan.steps[*step].exe.display();
+        self.log.line(format!("Installing {} into {}: {exe} with {}", plan.name, plan.dest.display(), proton.name));
         match launcher(&spec, on_exit) {
-            Ok(_) => self.set_progress(message),
+            Ok(log) => {
+                self.log.line(format!("The installer's log: {}", log.display()));
+                self.set_progress(message)
+            }
             Err(e) => {
                 self.installing = None;
                 self.set_status(fill(t.install_failed, &[&e]));
@@ -715,6 +811,10 @@ impl App {
         let t = self.t();
         let Some((plan, step)) = self.installing.take() else { return };
         let exe = crate::scan::file_name(&plan.steps[step].exe);
+        match &result {
+            Ok(()) => self.log.line(format!("{exe} finished")),
+            Err(e) => self.log.line(format!("{exe} exited with {e}")),
+        }
         if let Err(e) = result.map_err(|e| format!("{exe}: {e}")).and_then(|()| plan.check(step)) {
             return self.set_status(fill(t.install_failed, &[&e]));
         }
@@ -794,6 +894,8 @@ impl App {
     }
 
     fn show_toast(&mut self, text: String, until: f64) {
+        // Every message the user saw, errors among them, in the language they saw it in.
+        self.log.line(format!("Shown: {text}"));
         let seq = self.toast.as_ref().map_or(0, |t| t.seq + 1);
         self.toast = Some(Toast { text, seq, until });
     }
@@ -813,6 +915,21 @@ fn pick_exe(
         Ok(None) => {}
         Err(e) => s.set_status(fill(s.t().file_picker_failed, &[&e])),
     });
+}
+
+/// A log in a Markdown code block. Four backticks, so a log line with three can't end it.
+fn fenced(text: &str) -> String {
+    format!("````\n{text}\n````\n")
+}
+
+/// The Proton builds found, the default marked: "Proton 9.0 (default), GE-Proton10-34".
+fn proton_summary(protons: &[Proton], default: &str) -> String {
+    if protons.is_empty() {
+        return "none found".into();
+    }
+    let names =
+        protons.iter().map(|p| if p.name == default { format!("{} (default)", p.name) } else { p.name.clone() });
+    names.collect::<Vec<_>>().join(", ")
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -844,7 +961,13 @@ pub fn run() {
         ..AppSpec::new(
             "asterofix",
             WINDOW,
-            || App::new(Paths::from_env(), Endpoints::default(), Lang::detect(|k| std::env::var(k).ok())),
+            || {
+                let mut app =
+                    App::new(Paths::from_env(), Endpoints::default(), Lang::detect(|k| std::env::var(k).ok()));
+                app.set_host(Host::detect(Path::new("/"), |k| std::env::var(k).ok()));
+                crate::applog::log_panics(app.log.clone());
+                app
+            },
             view::view,
         )
     });

@@ -315,14 +315,21 @@ fn prefix_owner(prefix: &Path) -> Option<PathBuf> {
     Some(PathBuf::from(std::ffi::OsStr::from_bytes(&data)))
 }
 
-/// A game's log, private to the user, starting with the launch command as `shell_line` prints
-/// it, and secret-looking values of our own (a per-game environment) redacted too.
+/// A game's log, private to the user: when and by which asterofix it started, then the launch
+/// command as `shell_line` prints it, with secret-looking values of our own (a per-game
+/// environment) redacted too. The last launch's log is kept beside it (`prev_log_path`), so
+/// launching again doesn't lose the one that went wrong.
 pub fn open_log(paths: &Paths, name: &str, command: &LaunchCommand) -> std::io::Result<(PathBuf, std::fs::File)> {
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
     let path = log_path(paths, name);
     let dir = path.parent().unwrap_or(Path::new("/"));
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+    if path.exists() {
+        let prev = prev_log_path(&path);
+        std::fs::rename(&path, &prev)?;
+        std::fs::set_permissions(&prev, std::fs::Permissions::from_mode(0o600))?;
+    }
     let mut f = std::fs::OpenOptions::new().create(true).truncate(true).write(true).mode(0o600).open(&path)?;
     // `mode` only applies to new files.
     f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
@@ -330,13 +337,29 @@ pub fn open_log(paths: &Paths, name: &str, command: &LaunchCommand) -> std::io::
         Some((k, v)) if is_secret_env(k, v) => format!("{k}=[redacted]"),
         _ => shell_quote(a),
     });
-    writeln!(f, "$ {shown}\n")?;
+    let started = crate::applog::timestamp(std::time::SystemTime::now());
+    writeln!(f, "# asterofix {}, {started}\n$ {shown}\n", crate::applog::VERSION)?;
     Ok((path, f))
 }
 
-/// Where the log of the game called `name` goes; each launch overwrites it.
+/// Ends a game's log with how the game ended, and when.
+pub fn finish_log(path: &Path, result: &Result<(), String>) -> std::io::Result<()> {
+    let mut f = std::fs::OpenOptions::new().append(true).open(path)?;
+    let ended = crate::applog::timestamp(std::time::SystemTime::now());
+    match result {
+        Ok(()) => writeln!(f, "\n# exited normally, {ended}"),
+        Err(e) => writeln!(f, "\n# exited with {e}, {ended}"),
+    }
+}
+
+/// Where the log of the game called `name` goes; each launch replaces it.
 pub fn log_path(paths: &Paths, name: &str) -> PathBuf {
     paths.data_dir().join("logs").join(format!("{}.log", slug(name)))
+}
+
+/// Where the log a launch replaced is kept.
+pub fn prev_log_path(log: &Path) -> PathBuf {
+    log.with_extension("prev.log")
 }
 
 /// Parts of variable names (split on _ and -) that mark a secret.
