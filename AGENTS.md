@@ -50,8 +50,8 @@ This renders `library.png`, `library-narrow.png`, `hover.png`, `page.png`,
 `page-narrow.png`, `options.png`, `proton-menu.png`, `search.png`, `no-matches.png`, `toast.png`, `running.png`,
 `language-menu.png`, `install.png`, `install-narrow.png`, and in other languages `page-ru.png`, `library-ru-narrow.png` and `page-ja.png` headlessly (Rune's
 `--snap`, with the scenes in `view::SCENES`) from a made-up demo library:
-`scripts/demo_home.py` builds a throwaway home with Pong and Game 1 to 4, covers of white
-shapes on black already in the cache, and a fake Steam with a few Proton builds (Proton 9.0
+`scripts/demo_home.py` builds a throwaway home with Pong and Game 1 to 4, black and white
+covers drawn like box art (a little scene each, no titles) already in the cache, and a fake Steam with a few Proton builds (Proton 9.0
 its default). Screenshots never show
 the user's real games; add `--real` only to check something against your own library.
 Look at them after any UI change.
