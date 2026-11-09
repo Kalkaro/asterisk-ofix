@@ -765,10 +765,11 @@ fn choosing_the_default_proton_saves_nothing() {
     assert!(!Config::load(&ui.paths()).games.contains_key(&root));
 }
 
-/// The header's buttons, the reload button among them, and the dropdown menus are all one
-/// colour: the menus were a lighter grey, and the reload button had no fill at all.
+/// A menu is coloured like what it opens from: the language menu like the header's buttons
+/// (the reload button among them, which had no fill at all), and the Proton and executable
+/// menus like their open fields. They were a lighter, bluer grey than either.
 #[test]
-fn menus_match_the_buttons() {
+fn menus_match_their_triggers() {
     let mut ui = Ui::new(&[("Pong", 0)]);
     let fill = |ui: &Ui, key: &str| ui.find(key).unwrap_or_else(|| panic!("no {key:?}")).fill;
     let button = fill(&ui, "install");
@@ -786,9 +787,15 @@ fn menus_match_the_buttons() {
         s.options_open = true;
     });
     ui.settle();
-    ui.click("proton-trigger");
-    ui.settle();
-    assert_eq!(fill(&ui, "proton-menu"), button, "the Proton menu");
+    for key in ["proton", "exe"] {
+        ui.click(&format!("{key}-trigger"));
+        ui.settle();
+        let field = fill(&ui, &format!("{key}-trigger"));
+        assert!(field.a > 0.0 && field != button, "{key}: the open field is filled, darker than a button");
+        assert_eq!(fill(&ui, &format!("{key}-menu")), field, "{key}: the menu is its field's colour");
+        ui.key(Key::Escape);
+        ui.settle();
+    }
 }
 
 /// The kit's dropdown menu hung off the right end of its field, 160 points wide, and cut

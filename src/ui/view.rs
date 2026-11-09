@@ -231,12 +231,7 @@ fn header(s: &App, k: &Kit, width: f32, layer: &mut Vec<El>) -> El {
         .child(text(t.library).key("library-title").font(PAGE_TITLE).color(TEXT))
         .child(text(count).key("count").font(CAPTION_STRONG).color(MUTED).px(8.0).py(2.0).radius(10.0).fill(RAISED))
         .child(
-            IconButton::new(&REFRESH)
-                .label(t.rescan)
-                .help(t.rescan_help)
-                .on_press(App::rescan)
-                .build(k)
-                .key("rescan"),
+            IconButton::new(&REFRESH).label(t.rescan).help(t.rescan_help).on_press(App::rescan).build(k).key("rescan"),
         )
         .child(button(1, t.add_folder, &FOLDER_PLUS, "add-folder", App::add_folder))
         .child(button(2, t.add_game, &PLUS, "add-game", App::add_game))
@@ -255,7 +250,9 @@ fn language_button(s: &App, k: &Kit, labelled: bool, layer: &mut Vec<El>) -> El 
         let code = |i: usize| {
             Some(text(Lang::ALL[i].short()).key("code").font(CAPTION_STRONG).color(MUTED).w(LANGUAGE_CODE_W))
         };
-        let menu = Menu { key: KEY, label: s.t().language, width: 220.0, rows: Lang::ALL.len() as f32 };
+        // Coloured like the button it opens from.
+        let fill = k.c.bg_button_neutral;
+        let menu = Menu { key: KEY, label: s.t().language, width: 220.0, rows: Lang::ALL.len() as f32, fill };
         menu.build(k, &names, Some(s.lang.name()), App::choose_language, &code, layer);
     }
     let toggle = |s: &mut App, tx: &mut Tx| s.toggle_select(KEY, tx);
@@ -819,6 +816,18 @@ fn launch_options(s: &App, k: &Kit, g: &Game, spec: Option<&LaunchSpec>, width: 
         .child(input(k, "prefix", t.wine_prefix, &s.form.prefix, &d.prefix.to_string_lossy(), |s| &mut s.form.prefix))
 }
 
+/// What the kit fills an open Select field with: its hover tint over the page, blended as the
+/// window blends them. A field's menu takes the same colour.
+fn open_field_fill(k: &Kit) -> Color {
+    let (top, bottom) = (k.c.hover, k.c.bg_base);
+    let a = top.a + bottom.a * (1.0 - top.a);
+    let srgb = rune::theme::blends_srgb();
+    let enc = |c: f32| if srgb { rune::theme::srgb_encode(c) } else { c };
+    let dec = |c: f32| if srgb { rune::theme::srgb_decode(c) } else { c };
+    let mix = |t: f32, b: f32| dec((enc(t) * top.a + enc(b) * bottom.a * (1.0 - top.a)) / a);
+    Color { r: mix(top.r, bottom.r), g: mix(top.g, bottom.g), b: mix(top.b, bottom.b), a }
+}
+
 /// A dropdown field: the kit's Select field, opening a menu of our own under its left edge
 /// and as wide as it. The kit's menu hung off the field's right end, 160 points wide, and cut
 /// long names short (`picker_menu_lines_up_with_its_field`).
@@ -852,7 +861,8 @@ impl Picker {
             // The kit's `on_toggle` gets no `Tx`, and opening has to land a cover in flight.
             .on_press_tx(move |s: &mut App, tx: &mut Tx| s.toggle_select(key, tx));
         if open {
-            Menu { key, label: self.label, width: self.width, rows: Menu::ROWS }.build(
+            let fill = open_field_fill(k);
+            Menu { key, label: self.label, width: self.width, rows: Menu::ROWS, fill }.build(
                 k,
                 options,
                 current,
@@ -872,6 +882,8 @@ struct Menu {
     width: f32,
     /// How many rows it shows before it scrolls.
     rows: f32,
+    /// Its colour: its trigger's (`menus_match_their_triggers`).
+    fill: Color,
 }
 
 impl Menu {
@@ -923,8 +935,7 @@ impl Menu {
                 .min_h(0.0)
                 .padding(2.0)
                 .radius(10.0)
-                // Coloured like the buttons, edge and all (`menus_match_the_buttons`).
-                .fill(k.c.bg_button_neutral)
+                .fill(self.fill)
                 .border(1.0, k.c.border_base)
                 .shadow(10.0, 30.0, Color::BLACK.alpha(0.6))
                 .clip_rounded(10.0)
