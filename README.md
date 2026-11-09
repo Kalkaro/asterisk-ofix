@@ -35,6 +35,10 @@ you're logged in.
 Every game gets its own Wine prefix, in `~/.local/share/asterisk-ofix/prefixes/`. Your saves
 live there.
 
+The app speaks English, Russian, Ukrainian, German, French, Spanish, Brazilian Portuguese,
+Polish, Turkish, Simplified Chinese and Japanese. It follows your system's language; the globe
+at the end of the header picks another.
+
 Settings are in `~/.config/asterisk-ofix/config.json`, and each game's last log is in
 `~/.local/share/asterisk-ofix/logs/`.
 

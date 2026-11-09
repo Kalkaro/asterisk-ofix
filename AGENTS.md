@@ -47,7 +47,8 @@ nix develop -c scripts/preview.sh /some/dir
 ```
 
 This renders `library.png`, `library-narrow.png`, `hover.png`, `page.png`,
-`page-narrow.png`, `options.png`, `proton-menu.png`, `search.png`, `no-matches.png`, `toast.png` and `running.png` headlessly (Rune's
+`page-narrow.png`, `options.png`, `proton-menu.png`, `search.png`, `no-matches.png`, `toast.png`, `running.png`,
+`language-menu.png`, and in other languages `page-ru.png`, `library-ru-narrow.png` and `page-ja.png` headlessly (Rune's
 `--snap`, with the scenes in `view::SCENES`) from a made-up demo library:
 `scripts/demo_home.py` builds a throwaway home with Pong and Game 1 to 4, covers of white
 shapes on black already in the cache, and a fake Steam with a few Proton builds (Proton 9.0
@@ -90,7 +91,15 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
   it's empty puts it away. Ctrl+F opens it too. There is no status bar: messages go
   through `App::set_status`, which shows a toast (above the search bar while it's open).
 - `src/ui/theme.rs`: palette, type, the embedded Google Sans Flex font, icons (SVG bodies),
-  and the rune-kit `Kit`.
+  the languages' flags, and the rune-kit `Kit`.
+- `src/ui/i18n.rs`: the UI's languages and every string the user reads, one `Strings` per
+  language (a missing string doesn't build). Templates number their arguments (`{0}`), since
+  word order differs; `fill` puts them in. The language is the system's (`Lang::detect`,
+  given the environment so tests never read the real one) until one is picked from the globe
+  at the header's end, which saves its code as `language` in config.json. The menu lists each
+  language in itself, beside its flag. New UI text goes in every language, never as a literal
+  in the view (`translations_keep_every_placeholder`, `languages_are_translated`). Errors
+  from `launch.rs` and the like stay English: the CLI prints them too.
 - `src/background.rs`: the animated backdrop, ASCII stars on pure black, black and white
   only. A few big five-pointed stars are filled with characters chosen by cell coverage
   (`sd_star5`), and small sparkles look like `-*-` or `\*/`. Glyphs are X11's 7x13 "fixed"
@@ -138,8 +147,13 @@ installer on the user's machine; check it in CI. Run `shellcheck` and `actionlin
   (`header_is_anchored_left`). Centred floating things (search bar, toast) are the
   exception, and only show briefly.
 - Hyprland tiles windows smaller than the minimum size, and then the right edge is
-  cropped. Keep `MIN_WINDOW` under 600 wide and the header fitting at it
-  (`header_fits_at_every_width`).
+  cropped. Keep `MIN_WINDOW` under 600 wide and the header fitting at it, in every language
+  (`header_fits_at_every_width`). Where the measured labels don't fit (`header_labels_fit`),
+  Add folder and Add game show just their icons; English keeps its labels at the minimum.
+- The bundled font covers Latin scripts only. Cyrillic falls back to the system's DejaVu Sans,
+  and Chinese and Japanese to Noto CJK, which Rune finds itself.
+- Icons are one colour (they tint like glyphs). The flags are SVG images made in `setup`
+  (`App::flags`), not `Icon`s.
 - Rune fades out removed elements by default, but in about 0.1 s, which reads as popping.
   Things that come and go (cards a search hides, the search bar, the toast) use the `FADE`
   springs, and the element that's actually removed carries the transition: a transition

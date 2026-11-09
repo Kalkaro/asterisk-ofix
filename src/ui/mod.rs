@@ -3,6 +3,7 @@
 //! `App` holds all state; `view.rs` draws it. Work that finishes on other threads (artwork,
 //! games exiting) lands in `Inbox` and is picked up by `poll` on the UI thread.
 
+pub mod i18n;
 #[cfg(test)]
 mod tests;
 mod theme;
@@ -15,6 +16,7 @@ use crate::launch::{LaunchSpec, OnExit, build_spec, first_non_empty, stop_game};
 use crate::paths::Paths;
 use crate::scan::{Game, game_from_exe, scan_libraries};
 use crate::steam::{self, Proton, Steam};
+use i18n::{Lang, Strings, fill};
 use rune::{AppSpec, FileDialogOptions, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -71,6 +73,10 @@ pub struct App {
     /// The open dropdown on the page.
     pub open_select: Option<&'static str>,
     pub toast: Option<Toast>,
+    /// The UI's language: the one picked in the header's menu, or the system's.
+    pub lang: Lang,
+    /// Each language's flag, for the language menu; made once the window exists.
+    pub flags: HashMap<Lang, Image>,
     /// Seconds since start, as of the last frame.
     pub now: f64,
     pub background: Background,
@@ -111,7 +117,8 @@ struct Inbox {
 }
 
 impl App {
-    pub fn new(paths: Paths, endpoints: Endpoints) -> App {
+    /// `system` is the language the UI starts in until one is picked (`Lang::detect`).
+    pub fn new(paths: Paths, endpoints: Endpoints, system: Lang) -> App {
         let steam = steam::detect(&paths.home);
         let protons = steam.as_ref().map(Steam::protons).unwrap_or_default();
         let default_proton = steam.as_ref().map(|s| s.default_proton(&protons)).unwrap_or_default();
@@ -120,6 +127,7 @@ impl App {
             Box::new(move |spec: &LaunchSpec, on_exit: OnExit| steam.launch(&paths, spec, on_exit)) as Launcher
         });
         let (cfg, cfg_warning) = Config::open(&paths);
+        let lang = Lang::from_code(&cfg.language).unwrap_or(system);
         let mut app = App {
             cfg,
             art: ArtStore::new(&paths, steam.as_ref().map(|s| s.root.as_path()), endpoints),
@@ -140,6 +148,8 @@ impl App {
             form: Form::default(),
             open_select: None,
             toast: None,
+            lang,
+            flags: HashMap::new(),
             now: 0.0,
             background: Background::new(),
             launcher,
@@ -151,7 +161,7 @@ impl App {
             default_proton,
         };
         if app.steam.is_none() {
-            app.set_status("Steam installation not found. Install Steam and log in once.");
+            app.set_status(app.t().no_steam);
         }
         if let Some(warning) = cfg_warning {
             app.set_status(warning);
@@ -162,7 +172,16 @@ impl App {
 
     /// Runs once the window exists, with the waker other threads use to reach it.
     pub fn setup(&mut self, waker: Waker) {
-        self.image_cache = Some(ImageCache::new(waker.clone()));
+        let cache = ImageCache::new(waker.clone());
+        // Drawn at 20 points; three times that stays sharp on HiDPI screens.
+        self.flags =
+            Lang::ALL.into_iter().map(|l| (l, cache.svg(theme::flag_svg(l).into_bytes(), 20.0, 3.0))).collect();
+        if rune::tooling::headless_run().is_some() {
+            for flag in self.flags.values() {
+                let _ = flag.wait();
+            }
+        }
+        self.image_cache = Some(cache);
         *lock(&self.waker) = Some(waker);
         if rune::tooling::headless_run().is_some()
             && let Some(job) = self.art_job.take()
@@ -190,11 +209,12 @@ impl App {
         }
         for (root, name, result) in exits {
             self.running.remove(&root);
+            let t = self.t();
             match result {
                 // Killed, so it "failed", but that's what Stop asked for.
-                _ if self.stopping.remove(&root) => self.set_status(format!("{name} stopped")),
-                Ok(()) => self.set_status(format!("{name} exited")),
-                Err(e) => self.set_status(format!("{name} exited: {e}")),
+                _ if self.stopping.remove(&root) => self.set_status(fill(t.stopped, &[&name])),
+                Ok(()) => self.set_status(fill(t.exited, &[&name])),
+                Err(e) => self.set_status(fill(t.exited_with, &[&name, &e])),
             }
         }
         // Clicking away from an empty search puts it away.
@@ -256,6 +276,21 @@ impl App {
                 w()
             }
         }
+    }
+
+    /// The UI's strings, in its language.
+    pub fn t(&self) -> &'static Strings {
+        self.lang.strings()
+    }
+
+    /// Switches the UI to the language named `name` (in itself, as the menu lists it) and
+    /// remembers it.
+    pub fn choose_language(&mut self, name: &str) {
+        self.open_select = None;
+        let Some(lang) = Lang::from_name(name) else { return };
+        self.lang = lang;
+        self.cfg.language = lang.code().to_owned();
+        self.save();
     }
 
     pub fn display_name(&self, g: &Game) -> String {
@@ -447,18 +482,19 @@ impl App {
 
     fn save(&mut self) {
         if let Err(e) = self.cfg.save(&self.paths) {
-            self.set_status(format!("Could not save settings: {e}"));
+            self.set_status(fill(self.t().cant_save, &[&e]));
         }
     }
 
     /// Launches the game at `root`, unless it's running already.
     pub fn play(&mut self, root: &Path) {
         let Some(g) = self.game(root).cloned() else { return };
+        let t = self.t();
         if self.running.contains(root) {
-            return self.set_status(format!("{} is already running", self.display_name(&g)));
+            return self.set_status(fill(t.already_running, &[&self.display_name(&g)]));
         }
         let Some(launcher) = &self.launcher else {
-            return self.set_status("Steam installation not found. Install Steam and log in once.");
+            return self.set_status(t.no_steam);
         };
         let spec = match self.spec_for(&g) {
             Ok(spec) => spec,
@@ -466,8 +502,8 @@ impl App {
         };
         if !(self.steam_running)() {
             let msg = match steam::start_steam() {
-                Ok(()) => "Steam isn't running, starting it. Press Play again once you're logged in.".to_owned(),
-                Err(e) => format!("Could not start Steam: {e}"),
+                Ok(()) => t.starting_steam.to_owned(),
+                Err(e) => fill(t.cant_start_steam, &[&e]),
             };
             return self.set_status(msg);
         }
@@ -480,9 +516,9 @@ impl App {
             Ok(log) => {
                 self.logs.insert(g.root.clone(), log);
                 self.running.insert(g.root.clone());
-                self.set_status(format!("Launched {} with {}", spec.name, spec.proton.name));
+                self.set_status(fill(t.launched, &[&spec.name, &spec.proton.name]));
             }
-            Err(e) => self.set_status(format!("Launch failed: {e}")),
+            Err(e) => self.set_status(fill(t.launch_failed, &[&e])),
         }
     }
 
@@ -494,10 +530,10 @@ impl App {
         }
         let name = self.display_name(&g);
         if (self.stopper)(root) == 0 {
-            return self.set_status(format!("{name} is already closing"));
+            return self.set_status(fill(self.t().already_closing, &[&name]));
         }
         self.stopping.insert(root.to_owned());
-        self.set_status(format!("Stopping {name}"));
+        self.set_status(fill(self.t().stopping, &[&name]));
     }
 
     pub fn copy_command(&mut self, tx: &mut Tx) {
@@ -505,18 +541,18 @@ impl App {
         match self.spec_for(g).and_then(|spec| steam.shell_command(&spec)) {
             Ok(line) => {
                 tx.copy(line);
-                self.set_status("Launch command copied");
+                self.set_status(self.t().command_copied);
             }
             Err(e) => self.set_status(e),
         }
     }
 
     pub fn add_folder(&mut self, tx: &mut Tx) {
-        let options = FileDialogOptions { title: "Add a folder of games".into(), ..Default::default() };
+        let options = FileDialogOptions { title: self.t().add_folder_title.into(), ..Default::default() };
         tx.open_folder(options, |s: &mut App, result, _| match result {
             Ok(Some(dir)) => s.add_library(dir),
             Ok(None) => {}
-            Err(e) => s.set_status(format!("Could not open a folder picker: {e}")),
+            Err(e) => s.set_status(fill(s.t().folder_picker_failed, &[&e])),
         });
     }
 
@@ -529,7 +565,7 @@ impl App {
     }
 
     pub fn add_game(&mut self, tx: &mut Tx) {
-        pick_exe(tx, "Add a game", None, |s, exe| s.add_manual_exe(exe));
+        pick_exe(tx, self.t(), self.t().add_game_title, None, |s, exe| s.add_manual_exe(exe));
     }
 
     pub fn add_manual_exe(&mut self, exe: PathBuf) {
@@ -555,7 +591,7 @@ impl App {
 
     pub fn browse_exe(&mut self, tx: &mut Tx) {
         let dir = self.current().map(|g| g.root.clone());
-        pick_exe(tx, "Choose the game's executable", dir, |s, exe| s.use_exe(&exe));
+        pick_exe(tx, self.t(), self.t().choose_exe_title, dir, |s, exe| s.use_exe(&exe));
     }
 
     pub fn open_path(&mut self, path: &Path) {
@@ -568,7 +604,7 @@ impl App {
     pub fn open_log(&mut self) {
         match self.current().and_then(|g| self.log_for(g)) {
             Some(log) => self.open_path(&log),
-            None => self.set_status("No log yet. Launch the game first."),
+            None => self.set_status(self.t().no_log),
         }
     }
 
@@ -588,13 +624,19 @@ impl App {
     }
 }
 
-fn pick_exe(tx: &mut Tx, title: &str, dir: Option<PathBuf>, done: impl FnOnce(&mut App, PathBuf) + 'static) {
+fn pick_exe(
+    tx: &mut Tx,
+    t: &Strings,
+    title: &str,
+    dir: Option<PathBuf>,
+    done: impl FnOnce(&mut App, PathBuf) + 'static,
+) {
     let options = FileDialogOptions { title: title.into(), directory: dir, ..Default::default() }
-        .filter("Windows programs", &["exe", "EXE"]);
+        .filter(t.windows_programs, &["exe", "EXE"]);
     tx.open_file(options, move |s: &mut App, result, _| match result {
         Ok(Some(exe)) => done(s, exe),
         Ok(None) => {}
-        Err(e) => s.set_status(format!("Could not open a file picker: {e}")),
+        Err(e) => s.set_status(fill(s.t().file_picker_failed, &[&e])),
     });
 }
 
@@ -623,6 +665,11 @@ pub fn run() {
         poll: Some(poll),
         on_key: Some(App::on_key),
         scenes: view::SCENES,
-        ..AppSpec::new("asterisk-ofix", WINDOW, || App::new(Paths::from_env(), Endpoints::default()), view::view)
+        ..AppSpec::new(
+            "asterisk-ofix",
+            WINDOW,
+            || App::new(Paths::from_env(), Endpoints::default(), Lang::detect(|k| std::env::var(k).ok())),
+            view::view,
+        )
     });
 }

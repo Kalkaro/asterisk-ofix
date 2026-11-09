@@ -47,6 +47,9 @@ pub struct Config {
     /// Keyed by the game's root folder.
     #[serde(deserialize_with = "null_as_default")]
     pub games: BTreeMap<PathBuf, GameSettings>,
+    /// The UI's language code, picked in the app; empty follows the system's locale.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub language: String,
 }
 
 /// Empty lists may be written as `null`.
@@ -161,6 +164,17 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&kept[0]).unwrap(), broken);
         assert!(warning.contains(&crate::scan::file_name(&kept[0])), "{warning}");
         assert_eq!(Config::open(&paths).1, None, "the new config reads fine");
+    }
+
+    #[test]
+    fn the_language_is_saved_only_once_picked() {
+        let home = tempdir();
+        let paths = Paths::under(home.path());
+        Config::default().save(&paths).unwrap();
+        let saved = std::fs::read_to_string(paths.config_dir().join("config.json")).unwrap();
+        assert!(!saved.contains("language"), "{saved}");
+        Config { language: "pt-BR".into(), ..Config::default() }.save(&paths).unwrap();
+        assert_eq!(Config::load(&paths).language, "pt-BR");
     }
 
     #[test]

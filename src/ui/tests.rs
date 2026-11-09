@@ -2,6 +2,7 @@
 //! virtual clock. Nothing here touches the real machine: each test gets its own temp HOME,
 //! a fake Steam store, and a fake launcher instead of Proton.
 
+use super::i18n::{self, Lang};
 use super::view::{self, CARD_W, COVER_W, COVER_W_NARROW, GUTTER, card_key};
 use super::{App, DOUBLE_CLICK, MIN_WINDOW, TOAST_SECS};
 use crate::art::fake;
@@ -34,7 +35,7 @@ impl Ui {
         for (folder, id) in games {
             add_game(&lib, folder, *id);
         }
-        let mut app = App::new(Paths::under(home.path()), store.endpoints);
+        let mut app = App::new(Paths::under(home.path()), store.endpoints, Lang::En);
         app.setup(std::sync::Arc::new(|| {}));
         let mut rt = Runtime::new(app, view::view, SIZE, Env::new(true, 1.0));
         rt.poll = Some(super::poll);
@@ -710,8 +711,7 @@ fn picker_menu_lines_up_with_its_field() {
     let names = ["GE-Proton11-12-x86_64", "GE-Proton10-34", "Proton - Experimental", "Proton 9.0"];
     let open = root.clone();
     ui.rt.update(move |s, _| {
-        s.protons =
-            names.map(|n| crate::steam::Proton { name: n.into(), dir: "/p".into(), runtime: None }).to_vec();
+        s.protons = names.map(|n| crate::steam::Proton { name: n.into(), dir: "/p".into(), runtime: None }).to_vec();
         s.default_proton = "Proton 9.0".into();
         s.open_page(&open);
         s.options_open = true;
@@ -779,18 +779,77 @@ fn cards_keep_their_size_while_resizing() {
 }
 
 /// Tiling compositors (Hyprland) can give the window less room than its minimum size, and
-/// then it's drawn cropped. The minimum stays small, and at it the header still fits.
+/// then it's drawn cropped. The minimum stays small, and at it the header still fits, in every
+/// language: where the labels don't fit, the buttons show just their icons.
 #[test]
 fn header_fits_at_every_width() {
     assert!(MIN_WINDOW.0 < 600.0);
     let mut ui = Ui::new(&[("A Game With A Really Long Name That Goes On", 0)]);
-    for w in [MIN_WINDOW.0, 760.0, 900.0, 1300.0] {
-        ui.resize(w, 600.0);
-        for key in ["rescan", "add-folder", "add-game"] {
-            let [x, _, bw, _] = ui.rect(key);
-            assert!(x + bw <= w - 20.0, "width {w}: {key} ends at {}", x + bw);
+    let labelled = |ui: &Ui| ui.rect("add-folder")[2] > 60.0;
+    for lang in Lang::ALL {
+        ui.rt.update(move |s, _| s.lang = lang);
+        for w in [MIN_WINDOW.0, 600.0, 680.0, 760.0, 900.0, 1300.0] {
+            ui.resize(w, 600.0);
+            for key in ["rescan", "add-folder", "add-game", "language-trigger"] {
+                let [x, _, bw, _] = ui.rect(key);
+                assert!(x + bw <= w - 20.0, "{lang:?} at width {w}: {key} ends at {}", x + bw);
+            }
+            if w == MIN_WINDOW.0 && lang == Lang::En {
+                assert!(labelled(&ui), "English keeps its labels even in the narrowest window");
+            }
         }
+        assert!(labelled(&ui), "{lang:?}: a wide window has room for the labels");
     }
+}
+
+/// The globe at the header's end lists every language by its own name, beside its flag;
+/// picking one translates the UI at once and is remembered over the system's language.
+#[test]
+fn picking_a_language_translates_the_ui_and_remembers_it() {
+    let mut ui = Ui::new(&[("Pong", 0)]);
+    assert_eq!(ui.text("library-title"), "Library");
+    ui.click("language-trigger");
+    ui.settle();
+    let [tx, ty, _, th] = ui.rect("language-trigger");
+    let [mx, my, mw, _] = ui.rect("language-menu");
+    assert!(my >= ty + th && my - (ty + th) <= 6.0, "the menu hangs under the globe: {my}");
+    assert!(mx >= tx - mw && mx + mw <= SIZE.0, "the menu stays in the window: {mx} + {mw}");
+    let names: Vec<String> = (0..Lang::ALL.len())
+        .map(|i| ui.find(&format!("language-option{i}")).and_then(|e| e.label).unwrap_or_default())
+        .collect();
+    assert_eq!(names, Lang::ALL.map(|l| l.name()));
+    for i in 0..Lang::ALL.len() {
+        let [_, _, fw, fh] = ui.rect(&format!("language-option{i}/flag"));
+        assert!(fw > 0.0 && (fw / fh - 1.5).abs() < 0.01, "language {i}'s flag is {fw}x{fh}");
+    }
+
+    let ru = Lang::ALL.iter().position(|&l| l == Lang::Ru).unwrap();
+    ui.click(&format!("language-option{ru}"));
+    ui.settle();
+    assert!(ui.find("language-menu").is_none(), "choosing closes the menu");
+    assert_eq!(ui.text("library-title"), "Библиотека");
+    assert_eq!(Config::load(&ui.paths()).language, "ru");
+
+    // The pick wins over the system's language next time.
+    let app = App::new(ui.paths(), fake::start(&[]).endpoints, Lang::De);
+    assert_eq!(app.lang, Lang::Ru);
+    // With nothing picked, the system's language is used.
+    let fresh = tempdir();
+    assert_eq!(App::new(Paths::under(fresh.path()), fake::start(&[]).endpoints, Lang::Ja).lang, Lang::Ja);
+}
+
+/// Toasts are translated too, with the game's name where the language puts it.
+#[test]
+fn toasts_speak_the_language() {
+    let mut ui = Ui::new(&[("Pong", 0)]);
+    let fl = FakeLaunch::install(&mut ui);
+    ui.rt.update(|s, _| s.lang = Lang::Ru);
+    let root = ui.game("Pong");
+    ui.rt.update(move |s, _| s.play(&root));
+    fl.exit();
+    ui.settle();
+    assert_eq!(ui.toast(), i18n::fill(i18n::RU.exited, &[&"Pong"]));
+    assert_eq!(ui.toast(), "Игра Pong завершилась");
 }
 
 /// During a live resize the compositor shows the last frame pinned to the window's left
@@ -799,7 +858,7 @@ fn header_fits_at_every_width() {
 #[test]
 fn header_is_anchored_left() {
     let mut ui = Ui::new(&[("Hatch", 0)]);
-    let keys = ["logo", "library-title", "count", "rescan", "add-folder", "add-game"];
+    let keys = ["logo", "library-title", "count", "rescan", "add-folder", "add-game", "language-trigger"];
     ui.resize(1300.0, 700.0);
     let wide: Vec<_> = keys.iter().map(|k| ui.rect(k)).collect();
     let mut w = 1299.0;
@@ -956,7 +1015,7 @@ fn a_broken_config_says_so() {
     let home = tempdir();
     let paths = Paths::under(home.path());
     crate::testutil::write(&paths.config_dir().join("config.json"), "{ not json");
-    let mut app = App::new(paths, fake::start(&[]).endpoints);
+    let mut app = App::new(paths, fake::start(&[]).endpoints, Lang::En);
     app.setup(std::sync::Arc::new(|| {}));
     let toast = app.toast.as_ref().map(|t| t.text.clone()).unwrap_or_default();
     assert!(toast.starts_with("Unreadable config.json kept as config.json.broken-"), "toast: {toast:?}");
@@ -1102,4 +1161,3 @@ fn asterisk_drop_from_font_metrics() {
     assert!(asterisk_drop(40.0, 22.0) > asterisk_drop(22.0, 22.0));
     assert_eq!(asterisk_drop(40.0, 22.0).round(), 8.0);
 }
-

@@ -1,6 +1,7 @@
 //! Drawing `App`: the starfield, the header, the card grid, the page for the open game, and
 //! the status toast.
 
+use super::i18n::{Lang, Strings, fill};
 use super::theme::{self, *};
 use super::{App, Images};
 use crate::art::has_art;
@@ -35,8 +36,10 @@ const NARROW_INFO: f32 = 520.0;
 const HERO_ASPECT: f32 = 1920.0 / 620.0;
 /// Softens the starfield (Gaussian sigma, points). The UI above stays sharp.
 pub const BG_BLUR: f32 = 0.8;
-/// Header buttons drop their labels below this window width.
 const SEARCH_W: f32 = 520.0;
+/// What the header takes besides its texts' own widths: gutters, gaps, the logo, the icon
+/// buttons, and the labelled buttons' icons and padding, with room to spare.
+const HEADER_CHROME: f32 = 310.0;
 /// Things that come and go (cards a search hides, the toast) fade over about a third of a
 /// second. Rune's default presence fade is over in ~0.1 s, which reads as popping.
 const FADE: SpringPair = SpringPair::new(Spring::new(0.35, 0.0), Spring::new(0.35, 0.0));
@@ -92,7 +95,8 @@ pub const SCENES: &[Scene] = &[
         s.search = rune::TextEdit::new("zzzz");
         s.search_open = true;
     }),
-    ("toast", |s| s.set_status("Launched Pong with Proton 9.0")),
+    ("toast", |s| s.set_status(fill(s.t().launched, &[&"Pong", &"Proton 9.0"]))),
+    ("language-menu", |s| s.open_select = Some("language")),
     // The second game is running, with its page open.
     ("running", |s| {
         if let Some(root) = s.games.get(1).map(|g| g.root.clone()) {
@@ -111,7 +115,12 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     // hides the upscale.
     s.background.set_size(backdrop[0] as u32, backdrop[1] as u32);
 
-    let content = col().key("content").w_full().h_full().child(header(s, &k)).child(main(s, &k, size[0], &mut layer));
+    let content = col()
+        .key("content")
+        .w_full()
+        .h_full()
+        .child(header(s, &k, size[0], &mut layer))
+        .child(main(s, &k, size[0], &mut layer));
     let app = el()
         .key("app")
         .w_full()
@@ -136,12 +145,28 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     })
 }
 
-fn header(s: &App, k: &Kit) -> El {
+/// Whether the header's buttons fit with their labels at `width`. Some languages' labels are
+/// twice as long as English's; below this the buttons show just their icons
+/// (`header_fits_at_every_width`).
+fn header_labels_fit(t: &Strings, count: &str, width: f32) -> bool {
+    let w = |s: &str, style| rune::text::measure(s, &[], style, None).0;
+    let texts =
+        w(t.library, PAGE_TITLE) + w(count, CAPTION_STRONG) + w(t.add_folder, BODY_STRONG) + w(t.add_game, BODY_STRONG);
+    width >= HEADER_CHROME + texts
+}
+
+fn header(s: &App, k: &Kit, width: f32, layer: &mut Vec<El>) -> El {
+    let t = s.t();
     let visible = s.visible().len();
     let count =
-        if visible == s.games.len() { s.games.len().to_string() } else { format!("{visible} of {}", s.games.len()) };
+        if visible == s.games.len() { s.games.len().to_string() } else { fill(t.of, &[&visible, &s.games.len()]) };
+    let labels = header_labels_fit(t, &count, width);
     let button = |label: &'static str, glyph: &'static rune::Icon, key: &'static str, f: fn(&mut App, &mut Tx)| {
-        Button::new(label).icon(glyph).variant(ButtonVariant::Neutral).on_press_tx(f).build(k).key(key)
+        if labels {
+            Button::new(label).icon(glyph).variant(ButtonVariant::Neutral).on_press_tx(f).build(k).key(key)
+        } else {
+            IconButton::new(glyph).label(label).help(label).on_press_tx(f).build(k).key(key)
+        }
     };
     // Everything is anchored to the left edge. While a window is resized, the compositor
     // shows the last frame pinned to the left until the next one lands, so content pinned
@@ -165,32 +190,65 @@ fn header(s: &App, k: &Kit) -> El {
                 // The glyph's side bearings already space it; the row's gap would double that.
                 .mr(-7.0),
         )
-        .child(text("Library").key("library-title").font(PAGE_TITLE).color(TEXT))
+        .child(text(t.library).key("library-title").font(PAGE_TITLE).color(TEXT))
         .child(text(count).key("count").font(CAPTION_STRONG).color(MUTED).px(8.0).py(2.0).radius(10.0).fill(RAISED))
         .child(
             IconButton::new(&REFRESH)
-                .label("Rescan")
-                .help("Rescan library folders")
+                .label(t.rescan)
+                .help(t.rescan_help)
                 .variant(IconButtonVariant::Ghost)
                 .on_press(App::rescan)
                 .build(k)
                 .key("rescan"),
         )
-        .child(button("Add folder", &FOLDER_PLUS, "add-folder", App::add_folder))
-        .child(button("Add game", &PLUS, "add-game", App::add_game))
+        .child(button(t.add_folder, &FOLDER_PLUS, "add-folder", App::add_folder))
+        .child(button(t.add_game, &PLUS, "add-game", App::add_game))
+        .child(language_button(s, k, layer))
 }
+
+/// The globe at the header's end, and the menu of languages it opens, each beside its flag.
+fn language_button(s: &App, k: &Kit, layer: &mut Vec<El>) -> El {
+    const KEY: &str = "language";
+    let names: Vec<String> = Lang::ALL.iter().map(|l| l.name().to_owned()).collect();
+    if s.open_select == Some(KEY) {
+        let flag = |i: usize| {
+            let img = s.flags.get(&Lang::ALL[i])?;
+            Some(
+                el().key("flag")
+                    .size(FLAG_W, FLAG_W / 1.5)
+                    .radius(2.5)
+                    .clip_rounded(2.5)
+                    .pixels_fit(img.pixels(), SurfaceFit::Fill)
+                    .child(el().absolute(0.0, 0.0).w_full().h_full().radius(2.5).border(1.0, Color::WHITE.alpha(0.12))),
+            )
+        };
+        let menu = Menu { key: KEY, label: s.t().language, width: 220.0 };
+        menu.build(k, &names, Some(s.lang.name()), App::choose_language, &flag, layer);
+    }
+    IconButton::new(&GLOBE)
+        .label(s.t().language)
+        .help(s.t().language)
+        .variant(IconButtonVariant::Ghost)
+        .on_press(|s: &mut App| s.open_select = if s.open_select == Some(KEY) { None } else { Some(KEY) })
+        .build(k)
+        .key("language-trigger")
+}
+
+/// A flag in the language menu, 3:2.
+const FLAG_W: f32 = 21.0;
 
 /// The search: hidden until you start typing, then floating over the bottom of the window.
 fn search_bar(s: &App, k: &Kit, window_w: f32) -> El {
+    let t = s.t();
     let visible = s.visible().len();
     let count = if s.search.text.trim().is_empty() {
-        format!("{} games", s.games.len())
+        (t.games)(s.games.len())
     } else {
-        format!("{visible} of {}", s.games.len())
+        fill(t.of, &[&visible, &s.games.len()])
     };
     let field = TextInput::new(&s.search)
-        .placeholder("Search games")
-        .label("Search")
+        .placeholder(t.search_placeholder)
+        .label(t.search)
         .plain()
         .width(None)
         .text_style(SEARCH)
@@ -253,7 +311,7 @@ fn search_bar(s: &App, k: &Kit, window_w: f32) -> El {
                         .radius(6.0)
                         .border(1.0, BORDER)
                         .cursor(Cursor::Pointer)
-                        .help("Close search")
+                        .help(t.close_search)
                         .on_press(App::close_search),
                 ),
         )
@@ -338,6 +396,7 @@ fn cover_id(root: &Path) -> String {
 }
 
 fn card(s: &App, g: &Game) -> El {
+    let t = s.t();
     let name = s.display_name(g);
     let root = g.root.clone();
     let running = s.running.contains(&g.root);
@@ -372,12 +431,12 @@ fn card(s: &App, g: &Game) -> El {
         art = if !running {
             // Fades in under the pointer.
             art.child(
-                cover_button("play", "Play", &PLAY).group_opacity(0.0, 1.0).on_press(move |s: &mut App| s.play(&at)),
+                cover_button("play", t.play, &PLAY).group_opacity(0.0, 1.0).on_press(move |s: &mut App| s.play(&at)),
             )
         } else {
             // Always there while the game runs.
-            art.child(running_badge())
-                .child(cover_button("stop", "Stop", &STOP).on_press(move |s: &mut App| s.stop(&at)))
+            art.child(running_badge(t))
+                .child(cover_button("stop", t.stop, &STOP).on_press(move |s: &mut App| s.stop(&at)))
         };
         // A hairline at rest, a bright ring under the pointer.
         art.child(layer().radius(12.0).border(1.0, Color::WHITE.alpha(0.08)))
@@ -420,7 +479,7 @@ fn cover_button(key: &str, label: &str, glyph: &'static rune::Icon) -> El {
         .child(icon(glyph, 22.0).color(BACKGROUND))
 }
 
-fn running_badge() -> El {
+fn running_badge(t: &Strings) -> El {
     row()
         .key("running")
         .absolute(8.0, 8.0)
@@ -431,15 +490,16 @@ fn running_badge() -> El {
         .radius(10.0)
         .fill(Color::BLACK.alpha(0.78))
         .child(el().size(7.0, 7.0).radius(3.5).fill(GREEN).shadow(0.0, 6.0, GREEN.alpha(0.8)))
-        .child(text("Running").font(CAPTION_STRONG).color(TEXT))
+        .child(text(t.running).font(CAPTION_STRONG).color(TEXT))
 }
 
 fn empty(s: &App, k: &Kit) -> El {
+    let t = s.t();
     let none = s.games.is_empty();
     let (heading, body) = if none {
-        ("No games yet", "Add a folder that contains OnlineFix games,\nor pick a game's .exe directly.".to_owned())
+        (t.no_games, t.no_games_body.to_owned())
     } else {
-        ("No matches", format!("Nothing in your library matches \u{201c}{}\u{201d}.", s.search.text.trim()))
+        (t.no_matches, fill(t.no_matches_body, &[&s.search.text.trim()]))
     };
     let mut c = col()
         .key("empty")
@@ -457,7 +517,7 @@ fn empty(s: &App, k: &Kit) -> El {
                 .gap(8.0)
                 .mt(10.0)
                 .child(
-                    Button::new("Add folder")
+                    Button::new(t.add_folder)
                         .icon(&FOLDER_PLUS)
                         .variant(ButtonVariant::Contrast)
                         .on_press_tx(App::add_folder)
@@ -465,7 +525,7 @@ fn empty(s: &App, k: &Kit) -> El {
                         .key("empty-add-folder"),
                 )
                 .child(
-                    Button::new("Add game")
+                    Button::new(t.add_game)
                         .icon(&PLUS)
                         .variant(ButtonVariant::Neutral)
                         .on_press_tx(App::add_game)
@@ -479,6 +539,7 @@ fn empty(s: &App, k: &Kit) -> El {
 /// One game, in the grid's place: its cover, name, Play and launch options. Everything is
 /// placed from the left edge, so nothing trails a live resize.
 fn game_page(s: &App, k: &Kit, g: &Game, width: f32, layer: &mut Vec<El>) -> El {
+    let t = s.t();
     let name = s.display_name(g);
     let spec = s.spec_for(g).ok();
     let running = s.running.contains(&g.root);
@@ -503,12 +564,12 @@ fn game_page(s: &App, k: &Kit, g: &Game, width: f32, layer: &mut Vec<El>) -> El 
     cover = cover
         .child(el().absolute(0.0, 0.0).size(cover_w, cover_w * 1.5).radius(14.0).border(1.0, Color::WHITE.alpha(0.08)));
     if running {
-        cover = cover.child(running_badge());
+        cover = cover.child(running_badge(t));
     }
 
     let mut meta = Vec::new();
     if has_art(g.real_id) {
-        meta.push(format!("Steam app {}", g.real_id));
+        meta.push(fill(t.steam_app, &[&g.real_id]));
     }
     if let Some(spec) = &spec {
         if let Some(exe) = spec.exe.file_name() {
@@ -521,13 +582,13 @@ fn game_page(s: &App, k: &Kit, g: &Game, width: f32, layer: &mut Vec<El>) -> El 
 
     let root = g.root.clone();
     let play = if running {
-        Button::new("Stop")
+        Button::new(t.stop)
             .icon(&STOP)
             .variant(ButtonVariant::Neutral)
             .control_size(ControlSize::ExtraLarge)
             .on_press(move |s: &mut App| s.stop(&root))
     } else {
-        Button::new("Play")
+        Button::new(t.play)
             .icon(&PLAY)
             .variant(ButtonVariant::Contrast)
             .control_size(ControlSize::ExtraLarge)
@@ -540,7 +601,7 @@ fn game_page(s: &App, k: &Kit, g: &Game, width: f32, layer: &mut Vec<El>) -> El 
         .gaps(4.0, 8.0)
         .center_y()
         .child(el().w(160.0).mr(8.0).child(play.build(k).key("page-play").w_full()))
-        .children(page_actions(k, info_w < NARROW_INFO));
+        .children(page_actions(k, t, info_w < NARROW_INFO));
 
     let info = col()
         .key("info")
@@ -550,7 +611,7 @@ fn game_page(s: &App, k: &Kit, g: &Game, width: f32, layer: &mut Vec<El>) -> El 
         .child(text(meta.join("  ·  ")).key("meta").font(BODY).color(MUTED).wrap())
         .child(actions.mt(20.0))
         .child(el().w_full().h(1.0).fill(BORDER).mt(22.0).mb(4.0))
-        .child(options_toggle(s.options_open))
+        .child(options_toggle(t, s.options_open))
         .children(s.options_open.then(|| launch_options(s, k, g, spec.as_ref(), info_w, layer)));
 
     col()
@@ -572,10 +633,10 @@ fn game_page(s: &App, k: &Kit, g: &Game, width: f32, layer: &mut Vec<El>) -> El 
                         .gap(14.0)
                         .child(
                             el().self_start().ml(-10.0).child(
-                                Button::new("Back")
+                                Button::new(t.back)
                                     .icon(&BACK)
                                     .variant(ButtonVariant::Ghost)
-                                    .help("Back to the library (Esc)")
+                                    .help(t.back_help)
                                     .on_press(App::close_page)
                                     .build(k)
                                     .key("back"),
@@ -589,7 +650,7 @@ fn game_page(s: &App, k: &Kit, g: &Game, width: f32, layer: &mut Vec<El>) -> El 
 }
 
 /// Folder, Log and Copy command; just their icons in a narrow column.
-fn page_actions(k: &Kit, compact: bool) -> [El; 3] {
+fn page_actions(k: &Kit, t: &Strings, compact: bool) -> [El; 3] {
     let action = |key: &str, label: &'static str, glyph: &'static rune::Icon, f: fn(&mut App, &mut Tx)| {
         if compact {
             IconButton::new(glyph).label(label).help(label).variant(IconButtonVariant::Ghost).on_press_tx(f).build(k)
@@ -599,18 +660,18 @@ fn page_actions(k: &Kit, compact: bool) -> [El; 3] {
         .key(key)
     };
     [
-        action("folder", "Folder", &FOLDER, |s, _| {
+        action("folder", t.folder, &FOLDER, |s, _| {
             if let Some(root) = s.selected.clone() {
                 s.open_path(&root)
             }
         }),
-        action("log", "Log", &DOCUMENT, |s, _| s.open_log()),
-        action("copy-command", "Copy command", k.glyph.copy, App::copy_command),
+        action("log", t.log, &DOCUMENT, |s, _| s.open_log()),
+        action("copy-command", t.copy_command, k.glyph.copy, App::copy_command),
     ]
 }
 
 /// "Launch options", with a caret that turns as they open.
-fn options_toggle(open: bool) -> El {
+fn options_toggle(t: &Strings, open: bool) -> El {
     row()
         .key("options-toggle")
         .gap(8.0)
@@ -618,7 +679,7 @@ fn options_toggle(open: bool) -> El {
         .py(8.0)
         .self_start()
         .role("button")
-        .label("Launch options")
+        .label(t.launch_options)
         .cursor(Cursor::Pointer)
         .on_press(App::toggle_options)
         .child(icon(&CARET, 16.0).key("caret").color(MUTED).rotate(if open {
@@ -626,15 +687,16 @@ fn options_toggle(open: bool) -> El {
         } else {
             0.0
         }))
-        .child(text("Launch options").font(SUBHEADING).color(TEXT))
+        .child(text(t.launch_options).font(SUBHEADING).color(TEXT))
 }
 
 /// The game's settings: Proton, which .exe, and what it starts with.
 fn launch_options(s: &App, k: &Kit, g: &Game, spec: Option<&LaunchSpec>, width: f32, layer: &mut Vec<El>) -> El {
+    let t = s.t();
     let settings = s.cfg.settings(&g.root);
     let protons: Vec<String> = s.protons.iter().map(|p| p.name.clone()).collect();
     let current_proton = spec.map(|s| s.proton.name.as_str()).filter(|n| !n.is_empty());
-    let proton = Picker { key: "proton", label: "Proton", placeholder: "No Proton found", width }.build(
+    let proton = Picker { key: "proton", label: "Proton", placeholder: t.no_proton, width }.build(
         s,
         k,
         &protons,
@@ -649,8 +711,14 @@ fn launch_options(s: &App, k: &Kit, g: &Game, spec: Option<&LaunchSpec>, width: 
         exes.push(rel(Path::new(&settings.exe)));
     }
     let current_exe = spec.map(|s| rel(&s.exe));
-    let exe = Picker { key: "exe", label: "Executable", placeholder: "No executable found", width: width - 84.0 }
-        .build(s, k, &exes, current_exe.as_deref(), App::choose_exe, layer);
+    let exe = Picker { key: "exe", label: t.executable, placeholder: t.no_executable, width: width - 84.0 }.build(
+        s,
+        k,
+        &exes,
+        current_exe.as_deref(),
+        App::choose_exe,
+        layer,
+    );
 
     let d = s.detected().unwrap_or_default();
     col()
@@ -659,12 +727,12 @@ fn launch_options(s: &App, k: &Kit, g: &Game, spec: Option<&LaunchSpec>, width: 
         .pt(6.0)
         .gap(14.0)
         .transition(Transition::offset(0.0, -6.0).combined(Transition::opacity()).springs(FADE))
-        .child(text("Empty fields use the detected defaults.").font(CAPTION).color(MUTED).mt(-10.0))
+        .child(text(t.defaults_hint).font(CAPTION).color(MUTED).mt(-10.0))
         .child(field("Proton", proton))
         .child(field(
-            "Executable",
+            t.executable,
             row().gap(8.0).center_y().child(exe).child(
-                Button::new("Browse")
+                Button::new(t.browse)
                     .variant(ButtonVariant::Neutral)
                     .on_press_tx(App::browse_exe)
                     .build(k)
@@ -676,16 +744,16 @@ fn launch_options(s: &App, k: &Kit, g: &Game, spec: Option<&LaunchSpec>, width: 
                 .w_full()
                 .gap(12.0)
                 .child(
-                    input(k, "fake-id", "Steam app ID", &s.form.fake_id, &d.fake_app_id.to_string(), |s| {
+                    input(k, "fake-id", t.steam_app_id, &s.form.fake_id, &d.fake_app_id.to_string(), |s| {
                         &mut s.form.fake_id
                     })
                     .grow(1.0),
                 )
-                .child(input(k, "args", "Arguments", &s.form.args, "none", |s| &mut s.form.args).grow(1.0)),
+                .child(input(k, "args", t.arguments, &s.form.args, t.none, |s| &mut s.form.args).grow(1.0)),
         )
-        .child(input(k, "overrides", "DLL overrides", &s.form.overrides, &d.overrides, |s| &mut s.form.overrides))
-        .child(input(k, "env", "Environment", &s.form.env, "KEY=value …", |s| &mut s.form.env))
-        .child(input(k, "prefix", "Wine prefix", &s.form.prefix, &d.prefix.to_string_lossy(), |s| &mut s.form.prefix))
+        .child(input(k, "overrides", t.dll_overrides, &s.form.overrides, &d.overrides, |s| &mut s.form.overrides))
+        .child(input(k, "env", t.environment, &s.form.env, "KEY=value …", |s| &mut s.form.env))
+        .child(input(k, "prefix", t.wine_prefix, &s.form.prefix, &d.prefix.to_string_lossy(), |s| &mut s.form.prefix))
 }
 
 /// A dropdown field: the kit's Select field, opening a menu of our own under its left edge
@@ -699,10 +767,6 @@ struct Picker {
 }
 
 impl Picker {
-    /// The menu shows six and a half rows at most, so a longer list reads as one that scrolls.
-    const ROW_H: f32 = 32.0;
-    const MAX_H: f32 = 4.0 + 6.5 * (Self::ROW_H + 2.0);
-
     fn build(
         self,
         s: &App,
@@ -723,9 +787,36 @@ impl Picker {
             .open(open)
             .on_toggle(move |s: &mut App| s.open_select = if s.open_select == Some(key) { None } else { Some(key) })
             .trigger(k);
-        if !open {
-            return field;
+        if open {
+            Menu { key, label: self.label, width: self.width }.build(k, options, current, choose, &|_| None, layer);
         }
+        field
+    }
+}
+
+/// A dropdown's menu, under the left edge of the element keyed `{key}-trigger`.
+struct Menu {
+    key: &'static str,
+    label: &'static str,
+    width: f32,
+}
+
+impl Menu {
+    /// The menu shows six and a half rows at most, so a longer list reads as one that scrolls.
+    const ROW_H: f32 = 32.0;
+    const MAX_H: f32 = 4.0 + 6.5 * (Self::ROW_H + 2.0);
+
+    /// `trailing` gives what an option shows at its right end, after the check.
+    fn build(
+        self,
+        k: &Kit,
+        options: &[String],
+        current: Option<&str>,
+        choose: fn(&mut App, &str),
+        trailing: &dyn Fn(usize) -> Option<El>,
+        layer: &mut Vec<El>,
+    ) {
+        let key = self.key;
         let rows = options.iter().enumerate().map(|(i, option)| {
             let chosen = current == Some(option.as_str());
             let value = option.clone();
@@ -747,6 +838,7 @@ impl Picker {
                 .on_press(move |s: &mut App| choose(s, &value))
                 .child(text(option.clone()).font(BODY).color(TEXT).truncate().grow(1.0).shrink())
                 .child(icon(k.glyph.check_small, 14.0).color(TEXT).opacity(if chosen { 1.0 } else { 0.0 }))
+                .children(trailing(i))
         });
         // Pressing anywhere else closes it, as Escape does (`App::on_key`).
         layer.push(rune_kit::scrim(format!("{key}-scrim"), |s: &mut App| s.open_select = None));
@@ -780,7 +872,6 @@ impl Picker {
                         .scroll_edge_fade(12.0),
                 ),
         );
-        field
     }
 }
 
