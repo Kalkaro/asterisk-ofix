@@ -1,6 +1,13 @@
 {
   description = "asterofix - launch Steam Fix / Online Fix games through Proton with the Steam overlay";
 
+  # Prebuilt by CI (.github/workflows/nix.yml). Nix only offers it to `nix run` and the like on
+  # this flake; a system that takes asterofix as an input adds the cache itself (README).
+  nixConfig = {
+    extra-substituters = [ "https://asterofix.cachix.org" ];
+    extra-trusted-public-keys = [ "asterofix.cachix.org-1:eSwsKEg8DvMbePlRof4JgPYVxjrv+sBbG11Evomy008=" ];
+  };
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     rust-overlay = {

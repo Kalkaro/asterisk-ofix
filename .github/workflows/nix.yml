@@ -1,0 +1,24 @@
+# Builds the flake's package and pushes it to the asterofix Cachix cache, so NixOS users who
+# add the cache download asterofix instead of compiling it.
+name: Nix
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - uses: cachix/cachix-action@v16
+        with:
+          name: asterofix
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          # Only what users run is pushed below; the Rust toolchain alone would fill the cache.
+          skipPush: true
+      - run: nix flake check -L
+      - run: cachix push asterofix "$(nix build -L --print-out-paths)"

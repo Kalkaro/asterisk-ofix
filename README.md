@@ -27,6 +27,16 @@ and put it in your packages:
 environment.systemPackages = [ inputs.asterofix.packages.${pkgs.stdenv.hostPlatform.system}.default ];
 ```
 
+To download it prebuilt instead of compiling it, add its cache (and rebuild once before adding
+the package), and don't make its `nixpkgs` follow yours:
+
+```nix
+nix.settings = {
+  extra-substituters = [ "https://asterofix.cachix.org" ];
+  extra-trusted-public-keys = [ "asterofix.cachix.org-1:eSwsKEg8DvMbePlRof4JgPYVxjrv+sBbG11Evomy008=" ];
+};
+```
+
 or run it directly without installing:
 
 ```sh
