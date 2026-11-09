@@ -73,7 +73,7 @@
         {
           default = platform.buildRustPackage {
             pname = "asterofix";
-            version = "0.1.1";
+            version = "0.1.2";
             src = pkgs.lib.fileset.toSource {
               root = ./.;
               fileset = pkgs.lib.fileset.unions [
