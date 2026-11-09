@@ -38,7 +38,8 @@
             }
           )
         );
-      # Rune pins this toolchain (its rust-toolchain.toml).
+      # Rune pins this toolchain (its rust-toolchain.toml). The package builds with its minimal
+      # profile; this one, with sources and tools, is the dev shell's.
       toolchain =
         pkgs:
         pkgs.rust-bin.stable."1.99.1".default.override {
@@ -71,7 +72,9 @@
       packages = forAll (
         pkgs:
         let
-          rust = toolchain pkgs;
+          # Without rust-src: with it, rustc writes its real path into std's panic locations, and
+          # the whole toolchain (1.6 GB) became a runtime dependency.
+          rust = pkgs.rust-bin.stable."1.99.1".minimal;
           platform = pkgs.makeRustPlatform {
             cargo = rust;
             rustc = rust;
@@ -105,6 +108,7 @@
               pkgs.makeWrapper
             ];
             buildInputs = buildLibs pkgs;
+            disallowedReferences = [ rust ];
             # The app menu entry and its icon, as the AppImage carries them.
             postInstall = ''
               install -Dm644 packaging/asterofix.desktop -t $out/share/applications
