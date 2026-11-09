@@ -437,6 +437,18 @@ impl App {
         self.opening_until = 0.0;
     }
 
+    /// Opens the menu `key`, or closes it if it's open. Opening lands whatever is still moving:
+    /// a cover flying between a card and the page draws above the whole window, so it would
+    /// cover the menu (`a_cover_flying_home_never_shows_over_a_menu`).
+    pub fn toggle_select(&mut self, key: &'static str, tx: &mut Tx) {
+        if self.open_select == Some(key) {
+            self.open_select = None;
+        } else {
+            self.open_select = Some(key);
+            tx.settle();
+        }
+    }
+
     pub fn toggle_options(&mut self) {
         self.options_open = !self.options_open;
         self.open_select = None;

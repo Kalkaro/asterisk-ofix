@@ -262,7 +262,7 @@ fn language_button(s: &App, k: &Kit, layer: &mut Vec<El>) -> El {
         .label(s.t().language)
         .help(s.t().language)
         .variant(IconButtonVariant::Ghost)
-        .on_press(|s: &mut App| s.open_select = if s.open_select == Some(KEY) { None } else { Some(KEY) })
+        .on_press_tx(|s: &mut App, tx: &mut Tx| s.toggle_select(KEY, tx))
         .build(k)
         .key("language-trigger")
 }
@@ -826,8 +826,9 @@ impl Picker {
             .width(self.width)
             .current(current)
             .open(open)
-            .on_toggle(move |s: &mut App| s.open_select = if s.open_select == Some(key) { None } else { Some(key) })
-            .trigger(k);
+            .trigger(k)
+            // The kit's `on_toggle` gets no `Tx`, and opening has to land a cover in flight.
+            .on_press_tx(move |s: &mut App, tx: &mut Tx| s.toggle_select(key, tx));
         if open {
             Menu { key, label: self.label, width: self.width }.build(k, options, current, choose, &|_| None, layer);
         }

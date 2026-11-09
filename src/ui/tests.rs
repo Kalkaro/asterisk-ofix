@@ -530,6 +530,47 @@ fn a_cover_flying_home_never_shows_over_another_page() {
     assert_eq!(ui.text("title"), "Hatch");
 }
 
+/// A cover in flight draws above the whole window, so opening a menu lands it: one still
+/// flying home from a page covered the language menu, and one flying to a page would cover
+/// its pickers.
+#[test]
+fn a_cover_flying_home_never_shows_over_a_menu() {
+    let mut ui = Ui::new(&[("Pong", 0)]);
+    let card = ui.card("Pong");
+    let art = format!("{card}/art");
+    // In flight a cover grows or shrinks between the card's size and the page's.
+    let flying = |ui: &Ui, path: &str| {
+        let e = ui.elements().into_iter().find(|e| e.path.ends_with(path) && !e.exiting).unwrap();
+        (e.scale - 1.0).abs() > 0.001 || e.rect[2..] != e.target[2..]
+    };
+    ui.single_click(&card);
+    ui.settle();
+    ui.key(Key::Escape);
+    for _ in 0..4 {
+        ui.rt.frame(1.0 / 60.0);
+    }
+    assert!(flying(&ui, &art), "the cover flies home from the page");
+    ui.click("language-trigger");
+    assert!(ui.find("language-menu").is_some());
+    assert!(!flying(&ui, &art), "the cover lands as the menu opens");
+
+    ui.key(Key::Escape);
+    ui.settle();
+    let root = ui.game("Pong");
+    ui.rt.update(move |s, _| {
+        s.protons = vec![crate::steam::Proton { name: "Proton 9.0".into(), dir: "/p".into(), runtime: None }];
+        s.options_open = true;
+        s.open_page(&root);
+    });
+    for _ in 0..4 {
+        ui.rt.frame(1.0 / 60.0);
+    }
+    assert!(flying(&ui, "cover"), "the cover flies to the page");
+    ui.click("proton-trigger");
+    assert!(ui.find("proton-menu").is_some());
+    assert!(!flying(&ui, "cover"), "the cover lands as the picker opens");
+}
+
 #[test]
 fn launch_options_start_collapsed() {
     let mut ui = Ui::new(&[("Pong", 0)]);
@@ -1371,3 +1412,4 @@ fn asterisk_drop_from_font_metrics() {
     assert!(asterisk_drop(40.0, 22.0) > asterisk_drop(22.0, 22.0));
     assert_eq!(asterisk_drop(40.0, 22.0).round(), 8.0);
 }
+
