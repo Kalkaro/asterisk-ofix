@@ -71,7 +71,8 @@ impl LaunchCommand {
 }
 
 fn is_shell_name(k: &str) -> bool {
-    k.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_') && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    k.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+        && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 impl Steam {
@@ -283,9 +284,11 @@ pub fn default_prefix(paths: &Paths, root: &Path) -> PathBuf {
     match prefix_owner(&plain) {
         Some(owner) if owner != root && owner.exists() => {
             // FNV-1a: stable across Rust versions, unlike std's hasher.
-            let hash = root.as_os_str().as_bytes().iter().fold(0xcbf29ce484222325u64, |h, &b| {
-                (h ^ b as u64).wrapping_mul(0x100000001b3)
-            });
+            let hash = root
+                .as_os_str()
+                .as_bytes()
+                .iter()
+                .fold(0xcbf29ce484222325u64, |h, &b| (h ^ b as u64).wrapping_mul(0x100000001b3));
             paths.data_dir().join("prefixes").join(format!("{name}-{:08x}", hash as u32))
         }
         _ => plain,
@@ -378,7 +381,8 @@ fn without_appimage(env: Env) -> Env {
             if k != "LD_LIBRARY_PATH" {
                 return Some((k, v));
             }
-            let kept: Vec<&str> = v.split(':').filter(|p| !p.is_empty() && !Path::new(p).starts_with(&appdir)).collect();
+            let kept: Vec<&str> =
+                v.split(':').filter(|p| !p.is_empty() && !Path::new(p).starts_with(&appdir)).collect();
             (!kept.is_empty()).then(|| (k, kept.join(":")))
         })
         .collect()

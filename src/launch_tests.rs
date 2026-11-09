@@ -358,9 +358,8 @@ fn stop_ends_only_the_games_processes() {
     let e = game_env(&no_sandbox().command_from(&LaunchSpec { game_dir: game.clone(), ..spec() }, Env::new()).unwrap());
     assert_eq!(e[GAME_MARKER], game.to_string_lossy(), "launches carry the marker");
 
-    let spawn = |dir: &Path| {
-        std::process::Command::new("sleep").arg("30").env(GAME_MARKER, dir).spawn().expect("sleep")
-    };
+    let spawn =
+        |dir: &Path| std::process::Command::new("sleep").arg("30").env(GAME_MARKER, dir).spawn().expect("sleep");
     let (mut mine, mut theirs) = (spawn(&game), spawn(&other));
     // Until it execs, a child still has our environment.
     for _ in 0..200 {
