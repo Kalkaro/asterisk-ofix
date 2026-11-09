@@ -765,6 +765,34 @@ fn choosing_the_default_proton_saves_nothing() {
     assert!(!Config::load(&ui.paths()).games.contains_key(&root));
 }
 
+/// Pressing reload rescans and turns its arrow once, clockwise, easing to a stop; each press
+/// adds a turn. The button stays the square the other icon buttons are.
+#[test]
+fn reload_icon_turns_once_per_press() {
+    use std::f32::consts::TAU;
+    let mut ui = Ui::new(&[("Pong", 0)]);
+    let [_, _, w, h] = ui.rect("rescan");
+    assert_eq!((w, h), (24.0, ui.rect("install")[3]), "the reload button is an icon button's square");
+    let turn = |ui: &Ui| ui.rt.presented_pose("arrow").expect("no arrow").rotation();
+    assert_eq!(turn(&ui), 0.0);
+
+    add_game(&ui.home.path().join("Games"), "Hatch", 0);
+    ui.click("rescan");
+    for _ in 0..6 {
+        ui.rt.frame(1.0 / 60.0);
+    }
+    let mid = turn(&ui);
+    assert!(mid > 0.0 && mid < TAU, "the arrow is partway round a tenth of a second in: {mid}");
+    ui.settle();
+    assert!((turn(&ui) - TAU).abs() < 1e-3, "one press, one turn: {}", turn(&ui));
+    assert!(ui.rt.state.games.iter().any(|g| g.root == ui.game("Hatch")), "reload rescans");
+
+    ui.click("rescan");
+    ui.settle();
+    assert!((turn(&ui) - 2.0 * TAU).abs() < 1e-3, "a second press, a second turn: {}", turn(&ui));
+    assert_eq!(ui.rect("rescan")[2], 24.0, "the button doesn't change size");
+}
+
 /// A menu is coloured like what it opens from: the language menu like the header's buttons
 /// (the reload button among them, which had no fill at all), and the Proton and executable
 /// menus like their open fields. They were a lighter, bluer grey than either.

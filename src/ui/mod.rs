@@ -77,6 +77,8 @@ pub struct App {
     pub form: Form,
     /// The open dropdown on the page.
     pub open_select: Option<&'static str>,
+    /// How many times the reload button was pressed: its icon turns once for each.
+    pub reload_turns: u32,
     pub toast: Option<Toast>,
     /// The UI's language: the one picked in the header's menu, or the system's.
     pub lang: Lang,
@@ -163,6 +165,7 @@ impl App {
             install_form: None,
             form: Form::default(),
             open_select: None,
+            reload_turns: 0,
             toast: None,
             lang,
             now: 0.0,
@@ -309,6 +312,12 @@ impl App {
         let s = self.cfg.settings(&g.root);
         let art = self.art.get(g.real_id);
         first_non_empty(&s.name, first_non_empty(&art.name, &g.name)).to_owned()
+    }
+
+    /// The reload button: rescans, and turns its icon once.
+    pub fn reload(&mut self) {
+        self.reload_turns = self.reload_turns.wrapping_add(1);
+        self.rescan();
     }
 
     pub fn rescan(&mut self) {

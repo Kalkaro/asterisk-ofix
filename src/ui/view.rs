@@ -9,8 +9,8 @@ use crate::background::chunked;
 use crate::launch::LaunchSpec;
 use crate::scan::Game;
 use rune::{
-    Align, Color, Cursor, Cx, El, ScrollSpec, Side, Spring, SpringPair, SurfaceFit, Transition, Tx, col, el, icon, row,
-    text,
+    Align, Color, Cursor, Curve, Cx, Easing, El, ScrollSpec, Side, Spring, SpringPair, SurfaceFit, Transition, Tx, col,
+    el, icon, row, text,
 };
 use rune_kit::{
     Button, ButtonVariant, ControlSize, Dialog, IconButton, IconButtonVariant, Kit, Select, SelectAppearance, TextInput,
@@ -230,13 +230,34 @@ fn header(s: &App, k: &Kit, width: f32, layer: &mut Vec<El>) -> El {
         )
         .child(text(t.library).key("library-title").font(PAGE_TITLE).color(TEXT))
         .child(text(count).key("count").font(CAPTION_STRONG).color(MUTED).px(8.0).py(2.0).radius(10.0).fill(RAISED))
-        .child(
-            IconButton::new(&REFRESH).label(t.rescan).help(t.rescan_help).on_press(App::rescan).build(k).key("rescan"),
-        )
+        .child(reload_button(s, k))
         .child(button(1, t.add_folder, &FOLDER_PLUS, "add-folder", App::add_folder))
         .child(button(2, t.add_game, &PLUS, "add-game", App::add_game))
         .child(button(3, t.install, &DOWNLOAD, "install", |s, _| s.open_install()))
         .child(language_button(s, k, unlabelled == 0, layer))
+}
+
+/// The reload button: an icon button whose arrow turns once, clockwise as it points, each time
+/// it's pressed. The kit's `IconButton` can't turn its icon alone, so this is a `Button` with
+/// the icon for its label, cut to the icon button's square (`reload_icon_turns_once_per_press`).
+fn reload_button(s: &App, k: &Kit) -> El {
+    let turn = s.reload_turns as f32 * std::f32::consts::TAU;
+    Button::new(s.t().rescan)
+        .help(s.t().rescan_help)
+        .variant(ButtonVariant::Neutral)
+        .label_with(move |_, ink| {
+            icon(&REFRESH, 16.0)
+                .key("arrow")
+                .color(ink)
+                .rotate(turn)
+                // Quick off the mark, easing to a stop.
+                .rotate_motion(Curve::tween(0.55, Easing::cubic(0.3, 0.0, 0.1, 1.0)))
+        })
+        .on_press(App::reload)
+        .build(k)
+        .key("rescan")
+        .w(ICON_BUTTON)
+        .px(0.0)
 }
 
 /// The language button at the header's end, framed like the buttons beside it: the globe,
