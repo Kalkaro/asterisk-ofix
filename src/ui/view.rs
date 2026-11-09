@@ -138,6 +138,9 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
         .h_full()
         .child(header(s, &k, size[0], &mut layer))
         .child(main(s, &k, size[0], &mut layer));
+    // An open menu covers everything: the pointer on it, or on the scrim around it, hovers
+    // nothing under it, or the cards it lies over light up (`cards_under_an_open_menu_are_not_hovered`).
+    let content = if s.open_select.is_some() { content.inert() } else { content };
     install_dialog(s, &k, &mut layer);
     let app = el()
         .key("app")

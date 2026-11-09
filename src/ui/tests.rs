@@ -859,6 +859,41 @@ fn picking_a_language_translates_the_ui_and_remembers_it() {
     assert_eq!(App::new(Paths::under(fresh.path()), fake::start(&[]).endpoints, Lang::Ja).lang, Lang::Ja);
 }
 
+/// An open menu covers the grid: the pointer on the menu, or on the scrim around it, never
+/// hovers the cards under it.
+#[test]
+fn cards_under_an_open_menu_are_not_hovered() {
+    let games: Vec<(String, u32)> = (0..8).map(|i| (format!("Game {i}"), 0)).collect();
+    let games: Vec<(&str, u32)> = games.iter().map(|(n, id)| (n.as_str(), *id)).collect();
+    let mut ui = Ui::new(&games);
+    ui.click("language-trigger");
+    ui.settle();
+    let [mx, my, mw, mh] = ui.rect("language-menu");
+    let inside = |[x, y, w, h]: [f32; 4], (px, py): (f32, f32)| px > x && px < x + w && py > y && py < y + h;
+    // A point on the menu over a card's cover, and one on the scrim over another cover.
+    let on_menu = (mx + mw / 2.0, my + mh / 2.0);
+    let covers: Vec<(String, [f32; 4])> =
+        games.iter().map(|(n, _)| ui.card(n)).map(|c| (c.clone(), ui.rect(&format!("{c}/art")))).collect();
+    let (under, _) = covers.iter().find(|(_, r)| inside(*r, on_menu)).expect("a cover lies under the menu");
+    let (aside, [ax, ay, aw, ah]) =
+        covers.iter().find(|(_, r)| !inside([mx, my, mw, mh], (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0))).unwrap();
+    let play = |ui: &Ui, card: &str| ui.presented(&format!("{card}/play")).map_or(0.0, |(_, o)| o);
+
+    for (card, (x, y)) in [(under, on_menu), (aside, (ax + aw / 2.0, ay + ah / 4.0))] {
+        ui.rt.pointer_move(x, y);
+        ui.settle();
+        assert!(ui.find("language-menu").is_some());
+        assert!(play(&ui, card) < 0.01, "a card under the open menu shows its play button");
+    }
+    // Once the menu is closed, the card under the pointer hovers again.
+    ui.key(Key::Escape);
+    ui.settle();
+    assert!(ui.find("language-menu").is_none());
+    ui.rt.pointer_move(ax + aw / 2.0 + 1.0, ay + ah / 4.0);
+    ui.settle();
+    assert!(play(&ui, aside) > 0.99, "with the menu closed the card hovers");
+}
+
 /// Toasts are translated too, with the game's name where the language puts it.
 #[test]
 fn toasts_speak_the_language() {
