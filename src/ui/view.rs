@@ -28,10 +28,10 @@ pub const COVER_W: f32 = 240.0;
 pub const COVER_W_NARROW: f32 = 152.0;
 const PAGE_WIDE: f32 = 820.0;
 const PAGE_GAP: f32 = 32.0;
-/// The page's text column stops growing here, so lines stay readable.
-const INFO_MAX: f32 = 560.0;
-/// Below this the page's Folder, Log and Copy command buttons drop their labels.
-const NARROW_INFO: f32 = 520.0;
+/// The page's text column stops growing here, so lines stay readable. It's wide enough for
+/// Play, Folder, Log and Copy command with their labels in every language (French's are the
+/// longest, at 577 points).
+const INFO_MAX: f32 = 580.0;
 /// Steam heroes are 1920x620.
 const HERO_ASPECT: f32 = 1920.0 / 620.0;
 /// Softens the starfield (Gaussian sigma, points). The UI above stays sharp.
@@ -678,11 +678,10 @@ fn game_page(s: &App, k: &Kit, g: &Game, width: f32, layer: &mut Vec<El>) -> El 
     let actions = row()
         .key("actions")
         .w_full()
-        .flex_wrap()
-        .gaps(4.0, 8.0)
+        .gap(8.0)
         .center_y()
-        .child(el().w(160.0).mr(8.0).child(play.build(k).key("page-play").w_full()))
-        .children(page_actions(k, t, info_w < NARROW_INFO));
+        .child(el().w(PLAY_W).mr(8.0).child(play.build(k).key("page-play").w_full()))
+        .children(page_actions(k, t, page_labels(t, info_w)));
 
     let info = col()
         .key("info")
@@ -730,10 +729,34 @@ fn game_page(s: &App, k: &Kit, g: &Game, width: f32, layer: &mut Vec<El>) -> El 
         )
 }
 
-/// Folder, Log and Copy command; just their icons in a narrow column.
-fn page_actions(k: &Kit, t: &Strings, compact: bool) -> [El; 3] {
-    let action = |key: &str, label: &'static str, glyph: &'static rune::Icon, f: fn(&mut App, &mut Tx)| {
-        if compact {
+/// How many of the page's Folder, Log and Copy command keep their labels beside Play in a
+/// column `width` wide. Some languages' labels are much longer than English's; as the column
+/// narrows Copy command shows just its icon first, then Log, then Folder, so the row never
+/// wraps (`page_actions_stay_on_one_line`).
+fn page_labels(t: &Strings, width: f32) -> usize {
+    let labels = [t.folder, t.log, t.copy_command];
+    // Play and its margin, and the gaps before the three.
+    let mut need = PLAY_W + 8.0 + 3.0 * 8.0;
+    // A point each for rounding.
+    need += labels.iter().map(|l| rune::text::measure(l, &[], BODY_STRONG, None).0 + LABEL_PAD + 1.0).sum::<f32>();
+    for (i, label) in labels.iter().enumerate().rev() {
+        if width >= need {
+            return i + 1;
+        }
+        need -= rune::text::measure(label, &[], BODY_STRONG, None).0 + LABEL_PAD + 1.0 - ICON_BUTTON;
+    }
+    0
+}
+
+/// The page's Play button.
+const PLAY_W: f32 = 160.0;
+
+/// Folder, Log and Copy command; just their icons where their labels don't fit (`page_labels`).
+fn page_actions(k: &Kit, t: &Strings, labelled: usize) -> [El; 3] {
+    let mut i = 0;
+    let mut action = |key: &str, label: &'static str, glyph: &'static rune::Icon, f: fn(&mut App, &mut Tx)| {
+        i += 1;
+        if i > labelled {
             IconButton::new(glyph).label(label).help(label).variant(IconButtonVariant::Ghost).on_press_tx(f).build(k)
         } else {
             ghost(k, label, glyph, f)

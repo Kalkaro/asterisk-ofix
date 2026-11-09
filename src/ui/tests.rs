@@ -607,7 +607,9 @@ fn typing_on_a_page_searches_the_library() {
 }
 
 /// The page is placed from the left edge: its parts don't move sideways as the window's width
-/// changes (but for the cover's one step down in narrow windows), and nothing leaves it.
+/// changes (but for the cover's one step down in narrow windows), and nothing leaves it. In
+/// every language, Folder, Log and Copy command stay on Play's line, giving up their labels
+/// where they don't fit: in French, Russian and Ukrainian Copy command wrapped under Play.
 #[test]
 fn game_page_is_anchored_left_and_fits() {
     let mut ui = Ui::new(&[("A Game With A Really Long Name That Goes On", 0)]);
@@ -617,27 +619,44 @@ fn game_page_is_anchored_left_and_fits() {
         s.options_open = true;
     });
     let keys = ["back", "cover", "title", "page-play"];
-    for (from, to) in [(1300.0, 820.0), (819.0, MIN_WINDOW.0)] {
-        ui.resize(from, 700.0);
-        // Across only: a title that wraps onto more lines moves what's under it down.
-        let at: Vec<_> = keys.iter().map(|k| ui.rect(k)[0]).collect();
-        let mut w = from;
-        while w >= to {
-            ui.rt.set_viewport((w, 700.0), 1.0);
-            ui.rt.frame(1.0 / 60.0);
-            for (k, x) in keys.iter().zip(&at) {
-                assert_eq!(ui.rect(k)[0], *x, "width {w}: {k} moved with the window's right edge");
+    let labelled = |ui: &Ui, key: &str| ui.rect(key)[2] > 30.0;
+    for lang in Lang::ALL {
+        ui.rt.update(move |s, _| s.lang = lang);
+        for (from, to) in [(1300.0, 820.0), (819.0, MIN_WINDOW.0)] {
+            ui.resize(from, 700.0);
+            if from == 1300.0 {
+                for k in ["folder", "log", "copy-command"] {
+                    assert!(labelled(&ui, k), "{lang:?}: a wide window has room for {k}'s label");
+                }
             }
-            let ([_, py, _, ph], [_, cy, _, ch]) = (ui.rect("page-play"), ui.rect("copy-command"));
-            assert_eq!(py + ph / 2.0, cy + ch / 2.0, "width {w}: the actions wrapped onto a second line");
-            for k in ["title", "actions", "options", "prefix", "copy-command"] {
-                let [x, _, bw, _] = ui.rect(k);
-                assert!(x + bw <= w - GUTTER + 0.5, "width {w}: {k} ends at {}", x + bw);
+            // Across only: a title that wraps onto more lines moves what's under it down.
+            let at: Vec<_> = keys.iter().map(|k| ui.rect(k)[0]).collect();
+            let mut w = from;
+            while w >= to {
+                ui.rt.set_viewport((w, 700.0), 1.0);
+                ui.rt.frame(1.0 / 60.0);
+                for (k, x) in keys.iter().zip(&at) {
+                    assert_eq!(ui.rect(k)[0], *x, "{lang:?} at width {w}: {k} moved with the window's right edge");
+                }
+                let [_, py, _, ph] = ui.rect("page-play");
+                let [ix, _, iw, _] = ui.rect("info");
+                for k in ["folder", "log", "copy-command"] {
+                    let [x, y, bw, h] = ui.rect(k);
+                    assert_eq!(py + ph / 2.0, y + h / 2.0, "{lang:?} at width {w}: {k} wrapped onto a second line");
+                    assert!(x + bw <= ix + iw + 0.5, "{lang:?} at width {w}: {k} ends at {}, past the column", x + bw);
+                }
+                // Copy command gives its label up first, then Log, then Folder.
+                let shown = ["folder", "log", "copy-command"].map(|k| labelled(&ui, k));
+                assert!(shown.windows(2).all(|p| p[0] || !p[1]), "{lang:?} at width {w}: labels {shown:?}");
+                for k in ["title", "actions", "options", "prefix", "copy-command"] {
+                    let [x, _, bw, _] = ui.rect(k);
+                    assert!(x + bw <= w - GUTTER + 0.5, "{lang:?} at width {w}: {k} ends at {}", x + bw);
+                }
+                w -= 13.0;
             }
-            w -= 13.0;
+            let want = if from > 820.0 { COVER_W } else { COVER_W_NARROW };
+            assert_eq!(ui.rect("cover")[2], want);
         }
-        let want = if from > 820.0 { COVER_W } else { COVER_W_NARROW };
-        assert_eq!(ui.rect("cover")[2], want);
     }
 }
 

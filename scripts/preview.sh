@@ -16,7 +16,7 @@ if [[ ${2:-} != --real ]]; then
   export HOME=$demo
   unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME
 fi
-# English, whatever this machine's locale; the -ru and -ja shots set their own.
+# English, whatever this machine's locale; the -ru, -ja and -fr shots set their own.
 unset LC_ALL LC_MESSAGES LANGUAGE
 export LANG=C.UTF-8
 snap() { "$bin" --snap "$out/$1.png" "${@:2}" >/dev/null; }
@@ -37,6 +37,8 @@ snap install-narrow --scene install --size 540x600
 LANG=ru_RU.UTF-8 snap page-ru --scene options --size 1080x720
 LANG=ru_RU.UTF-8 snap library-ru-narrow --size 600x600
 LANG=ja_JP.UTF-8 snap page-ja --scene page --size 1280x760
+# French has the longest labels beside Play.
+LANG=fr_FR.UTF-8 snap page-fr --scene page --size 1080x720
 # The pointer over the second card.
 hover=$(mktemp --suffix .json)
 echo '{"events": [{"t": 0.1, "type": "move", "x": 326, "y": 200}]}' >"$hover"
