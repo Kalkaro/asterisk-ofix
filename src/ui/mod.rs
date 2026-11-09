@@ -80,8 +80,6 @@ pub struct App {
     pub toast: Option<Toast>,
     /// The UI's language: the one picked in the header's menu, or the system's.
     pub lang: Lang,
-    /// Each language's flag, for the language menu; made once the window exists.
-    pub flags: HashMap<Lang, Image>,
     /// Seconds since start, as of the last frame.
     pub now: f64,
     pub background: Background,
@@ -167,7 +165,6 @@ impl App {
             open_select: None,
             toast: None,
             lang,
-            flags: HashMap::new(),
             now: 0.0,
             background: Background::new(),
             launcher,
@@ -190,16 +187,7 @@ impl App {
 
     /// Runs once the window exists, with the waker other threads use to reach it.
     pub fn setup(&mut self, waker: Waker) {
-        let cache = ImageCache::new(waker.clone());
-        // Drawn at 20 points; three times that stays sharp on HiDPI screens.
-        self.flags =
-            Lang::ALL.into_iter().map(|l| (l, cache.svg(theme::flag_svg(l).into_bytes(), 20.0, 3.0))).collect();
-        if rune::tooling::headless_run().is_some() {
-            for flag in self.flags.values() {
-                let _ = flag.wait();
-            }
-        }
-        self.image_cache = Some(cache);
+        self.image_cache = Some(ImageCache::new(waker.clone()));
         *lock(&self.waker) = Some(waker);
         if rune::tooling::headless_run().is_some()
             && let Some(job) = self.art_job.take()

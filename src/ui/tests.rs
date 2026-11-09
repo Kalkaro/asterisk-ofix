@@ -76,9 +76,14 @@ impl Ui {
     }
 
     fn presented(&self, path: &str) -> Option<([f32; 4], f32)> {
+        self.lookup(path).map(|e| (e.rect, e.opacity))
+    }
+
+    /// The element at a key path like "card-x/play".
+    fn lookup(&self, path: &str) -> Option<ElementInfo> {
         let keys: Vec<&str> = path.split('/').collect();
         let all = self.elements();
-        let found = all.iter().enumerate().find(|(_, e)| {
+        let found = all.iter().position(|e| {
             if e.key.as_deref() != keys.last().copied() || e.exiting {
                 return false;
             }
@@ -93,7 +98,7 @@ impl Ui {
             }
             want.peek().is_none()
         })?;
-        Some((found.1.rect, found.1.opacity))
+        all.into_iter().nth(found)
     }
 
     /// The opacity of `key` while it animates away, if it's on its way out.
@@ -101,8 +106,9 @@ impl Ui {
         self.elements().into_iter().find(|e| e.key.as_deref() == Some(key) && e.exiting).map(|e| e.opacity)
     }
 
-    fn text(&self, key: &str) -> String {
-        self.find(key).and_then(|e| e.text).unwrap_or_default()
+    /// What the text at `path` (a key, or a key path) shows.
+    fn text(&self, path: &str) -> String {
+        self.lookup(path).and_then(|e| e.text).unwrap_or_default()
     }
 
     fn click(&mut self, key: &str) {
@@ -851,38 +857,49 @@ fn header_fits_at_every_width() {
                 let [x, _, bw, _] = ui.rect(key);
                 assert!(x + bw <= w - 20.0, "{lang:?} at width {w}: {key} ends at {}", x + bw);
             }
+            // The language button gives up its code before Add folder its label.
+            let code = ui.lookup("language-trigger/code").is_some();
+            assert!(
+                !code || labelled(&ui, "add-folder"),
+                "{lang:?} at width {w}: Add folder lost its label while the language button kept its code"
+            );
             if w == MIN_WINDOW.0 && lang == Lang::En {
-                // Add folder gives its label up first.
                 for key in ["add-game", "install"] {
                     assert!(labelled(&ui, key), "English keeps {key}'s label even in the narrowest window");
                 }
             }
         }
-        for key in ["add-folder", "add-game", "install"] {
+        for key in ["add-folder", "add-game", "install", "language-trigger"] {
             assert!(labelled(&ui, key), "{lang:?}: a wide window has room for {key}'s label");
         }
+        assert_eq!(ui.text("language-trigger/code"), lang.short());
     }
 }
 
-/// The globe at the header's end lists every language by its own name, beside its flag;
-/// picking one translates the UI at once and is remembered over the system's language.
+/// The language button at the header's end shows the current language's code, and lists
+/// every language by its own name after its code; picking one translates the UI at once and
+/// is remembered over the system's language.
 #[test]
 fn picking_a_language_translates_the_ui_and_remembers_it() {
     let mut ui = Ui::new(&[("Pong", 0)]);
     assert_eq!(ui.text("library-title"), "Library");
+    assert_eq!(ui.text("language-trigger/code"), "EN");
+    assert_eq!(ui.find("language-trigger").and_then(|e| e.label).as_deref(), Some("Language"));
     ui.click("language-trigger");
     ui.settle();
     let [tx, ty, _, th] = ui.rect("language-trigger");
-    let [mx, my, mw, _] = ui.rect("language-menu");
-    assert!(my >= ty + th && my - (ty + th) <= 6.0, "the menu hangs under the globe: {my}");
+    let [mx, my, mw, mh] = ui.rect("language-menu");
+    assert!(my >= ty + th && my - (ty + th) <= 6.0, "the menu hangs under the button: {my}");
     assert!(mx >= tx - mw && mx + mw <= SIZE.0, "the menu stays in the window: {mx} + {mw}");
     let names: Vec<String> = (0..Lang::ALL.len())
         .map(|i| ui.find(&format!("language-option{i}")).and_then(|e| e.label).unwrap_or_default())
         .collect();
     assert_eq!(names, Lang::ALL.map(|l| l.name()));
-    for i in 0..Lang::ALL.len() {
-        let [_, _, fw, fh] = ui.rect(&format!("language-option{i}/flag"));
-        assert!(fw > 0.0 && (fw / fh - 1.5).abs() < 0.01, "language {i}'s flag is {fw}x{fh}");
+    for (i, lang) in Lang::ALL.into_iter().enumerate() {
+        assert_eq!(ui.text(&format!("language-option{i}/code")), lang.short());
+        // Every language shows at once: none is cut off at the menu's end.
+        let [_, oy, _, oh] = ui.rect(&format!("language-option{i}"));
+        assert!(oy + oh <= my + mh, "{lang:?} is cut off at the menu's end: {} > {}", oy + oh, my + mh);
     }
 
     let ru = Lang::ALL.iter().position(|&l| l == Lang::Ru).unwrap();
@@ -890,6 +907,7 @@ fn picking_a_language_translates_the_ui_and_remembers_it() {
     ui.settle();
     assert!(ui.find("language-menu").is_none(), "choosing closes the menu");
     assert_eq!(ui.text("library-title"), "Библиотека");
+    assert_eq!(ui.text("language-trigger/code"), "RU");
     assert_eq!(Config::load(&ui.paths()).language, "ru");
 
     // The pick wins over the system's language next time.
@@ -1412,4 +1430,3 @@ fn asterisk_drop_from_font_metrics() {
     assert!(asterisk_drop(40.0, 22.0) > asterisk_drop(22.0, 22.0));
     assert_eq!(asterisk_drop(40.0, 22.0).round(), 8.0);
 }
-

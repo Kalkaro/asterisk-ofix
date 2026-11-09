@@ -166,21 +166,27 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     })
 }
 
-/// How many of the header's buttons (Add folder, Add game, Install) keep their labels at
-/// `width`. Some languages' labels are twice as long as English's. As the window narrows Add
-/// folder shows just its icon first, then Add game, then Install (`header_fits_at_every_width`).
-fn header_labels(t: &Strings, count: &str, width: f32) -> usize {
+/// How many of the header's buttons (the language, Add folder, Add game, Install) keep their
+/// labels at `width`. Some languages' labels are twice as long as English's. As the window
+/// narrows the language button shows just its globe first, then Add folder its icon, then Add
+/// game, then Install (`header_fits_at_every_width`).
+fn header_labels(t: &Strings, count: &str, lang: Lang, width: f32) -> usize {
     let w = |s: &str, style| rune::text::measure(s, &[], style, None).0;
     let labels = [t.add_folder, t.add_game, t.install];
+    // What each button takes beyond its icon, in the order they give it up. `HEADER_CHROME`
+    // counts the language button as an icon button, and the others' icons and padding.
+    let language = w(lang.short(), BODY_STRONG) + LABEL_PAD + LANGUAGE_CHEVRON_GAP + LANGUAGE_CHEVRON - ICON_BUTTON;
+    let drops = [language].into_iter().chain(labels.iter().map(|l| w(l, BODY_STRONG) + LABEL_PAD - ICON_BUTTON));
     let mut need = HEADER_CHROME
+        + language
         + w(t.library, PAGE_TITLE)
         + w(count, CAPTION_STRONG)
         + labels.iter().map(|l| w(l, BODY_STRONG)).sum::<f32>();
-    for (i, label) in labels.iter().enumerate() {
+    for (i, drop) in drops.enumerate() {
         if width >= need {
-            return labels.len() - i;
+            return 1 + labels.len() - i;
         }
-        need -= w(label, BODY_STRONG) + LABEL_PAD - ICON_BUTTON;
+        need -= drop;
     }
     0
 }
@@ -190,8 +196,8 @@ fn header(s: &App, k: &Kit, width: f32, layer: &mut Vec<El>) -> El {
     let visible = s.visible().len();
     let count =
         if visible == s.games.len() { s.games.len().to_string() } else { fill(t.of, &[&visible, &s.games.len()]) };
-    // Those before `unlabelled` show just their icons.
-    let unlabelled = 3 - header_labels(t, &count, width);
+    // Those before `unlabelled` show just their icons: 0 is the language button.
+    let unlabelled = 4 - header_labels(t, &count, s.lang, width);
     let button =
         |i: usize, label: &'static str, glyph: &'static rune::Icon, key: &'static str, f: fn(&mut App, &mut Tx)| {
             if i >= unlabelled {
@@ -233,42 +239,59 @@ fn header(s: &App, k: &Kit, width: f32, layer: &mut Vec<El>) -> El {
                 .build(k)
                 .key("rescan"),
         )
-        .child(button(0, t.add_folder, &FOLDER_PLUS, "add-folder", App::add_folder))
-        .child(button(1, t.add_game, &PLUS, "add-game", App::add_game))
-        .child(button(2, t.install, &DOWNLOAD, "install", |s, _| s.open_install()))
-        .child(language_button(s, k, layer))
+        .child(button(1, t.add_folder, &FOLDER_PLUS, "add-folder", App::add_folder))
+        .child(button(2, t.add_game, &PLUS, "add-game", App::add_game))
+        .child(button(3, t.install, &DOWNLOAD, "install", |s, _| s.open_install()))
+        .child(language_button(s, k, unlabelled == 0, layer))
 }
 
-/// The globe at the header's end, and the menu of languages it opens, each beside its flag.
-fn language_button(s: &App, k: &Kit, layer: &mut Vec<El>) -> El {
+/// The language button at the header's end, framed like the buttons beside it: the globe,
+/// the current language's code and a chevron, or just the globe where there's no room. Its
+/// menu lists every language in itself, all at once, after its code.
+fn language_button(s: &App, k: &Kit, labelled: bool, layer: &mut Vec<El>) -> El {
     const KEY: &str = "language";
-    let names: Vec<String> = Lang::ALL.iter().map(|l| l.name().to_owned()).collect();
-    if s.open_select == Some(KEY) {
-        let flag = |i: usize| {
-            let img = s.flags.get(&Lang::ALL[i])?;
-            Some(
-                el().key("flag")
-                    .size(FLAG_W, FLAG_W / 1.5)
-                    .radius(2.5)
-                    .clip_rounded(2.5)
-                    .pixels_fit(img.pixels(), SurfaceFit::Fill)
-                    .child(el().absolute(0.0, 0.0).w_full().h_full().radius(2.5).border(1.0, Color::WHITE.alpha(0.12))),
-            )
+    let open = s.open_select == Some(KEY);
+    if open {
+        let names: Vec<String> = Lang::ALL.iter().map(|l| l.name().to_owned()).collect();
+        let code = |i: usize| {
+            Some(text(Lang::ALL[i].short()).key("code").font(CAPTION_STRONG).color(MUTED).w(LANGUAGE_CODE_W))
         };
-        let menu = Menu { key: KEY, label: s.t().language, width: 220.0 };
-        menu.build(k, &names, Some(s.lang.name()), App::choose_language, &flag, layer);
+        let menu = Menu { key: KEY, label: s.t().language, width: 220.0, rows: Lang::ALL.len() as f32 };
+        menu.build(k, &names, Some(s.lang.name()), App::choose_language, &code, layer);
     }
-    IconButton::new(&GLOBE)
-        .label(s.t().language)
-        .help(s.t().language)
-        .variant(IconButtonVariant::Ghost)
-        .on_press_tx(|s: &mut App, tx: &mut Tx| s.toggle_select(KEY, tx))
+    let toggle = |s: &mut App, tx: &mut Tx| s.toggle_select(KEY, tx);
+    if !labelled {
+        let label = s.t().language;
+        return IconButton::new(&GLOBE)
+            .label(label)
+            .help(label)
+            .expanded(open)
+            .on_press_tx(toggle)
+            .build(k)
+            .key("language-trigger");
+    }
+    let (short, chevron) = (s.lang.short(), k.glyph.chevron_down);
+    Button::new(s.t().language)
+        .icon(&GLOBE)
+        .variant(ButtonVariant::Neutral)
+        .expanded(open)
+        .label_with(move |font, ink| {
+            row()
+                .gap(LANGUAGE_CHEVRON_GAP)
+                .center_y()
+                .child(text(short).key("code").font(font).color(ink))
+                .child(icon(chevron, LANGUAGE_CHEVRON).color(MUTED))
+        })
+        .on_press_tx(toggle)
         .build(k)
         .key("language-trigger")
 }
 
-/// A flag in the language menu, 3:2.
-const FLAG_W: f32 = 21.0;
+/// The language button's chevron after its code, and the gap before it.
+const LANGUAGE_CHEVRON: f32 = 12.0;
+const LANGUAGE_CHEVRON_GAP: f32 = 4.0;
+/// The column of codes before the names in the language menu.
+const LANGUAGE_CODE_W: f32 = 22.0;
 
 /// The search: hidden until you start typing, then floating over the bottom of the window.
 fn search_bar(s: &App, k: &Kit, window_w: f32) -> El {
@@ -830,7 +853,14 @@ impl Picker {
             // The kit's `on_toggle` gets no `Tx`, and opening has to land a cover in flight.
             .on_press_tx(move |s: &mut App, tx: &mut Tx| s.toggle_select(key, tx));
         if open {
-            Menu { key, label: self.label, width: self.width }.build(k, options, current, choose, &|_| None, layer);
+            Menu { key, label: self.label, width: self.width, rows: Menu::ROWS }.build(
+                k,
+                options,
+                current,
+                choose,
+                &|_| None,
+                layer,
+            );
         }
         field
     }
@@ -841,21 +871,23 @@ struct Menu {
     key: &'static str,
     label: &'static str,
     width: f32,
+    /// How many rows it shows before it scrolls.
+    rows: f32,
 }
 
 impl Menu {
-    /// The menu shows six and a half rows at most, so a longer list reads as one that scrolls.
+    /// A dropdown shows six and a half rows at most, so a longer list reads as one that scrolls.
+    const ROWS: f32 = 6.5;
     const ROW_H: f32 = 32.0;
-    const MAX_H: f32 = 4.0 + 6.5 * (Self::ROW_H + 2.0);
 
-    /// `trailing` gives what an option shows at its right end, after the check.
+    /// `leading` gives what an option shows before its name.
     fn build(
         self,
         k: &Kit,
         options: &[String],
         current: Option<&str>,
         choose: fn(&mut App, &str),
-        trailing: &dyn Fn(usize) -> Option<El>,
+        leading: &dyn Fn(usize) -> Option<El>,
         layer: &mut Vec<El>,
     ) {
         let key = self.key;
@@ -878,10 +910,11 @@ impl Menu {
                 .center_y()
                 .radius(6.0)
                 .on_press(move |s: &mut App| choose(s, &value))
+                .children(leading(i))
                 .child(text(option.clone()).font(BODY).color(TEXT).truncate().grow(1.0).shrink())
                 .child(icon(k.glyph.check_small, 14.0).color(TEXT).opacity(if chosen { 1.0 } else { 0.0 }))
-                .children(trailing(i))
         });
+        let max_h = 4.0 + self.rows * (Self::ROW_H + 2.0);
         // Pressing anywhere else closes it, as Escape does (`App::on_key`).
         layer.push(rune_kit::scrim(format!("{key}-scrim"), |s: &mut App| s.open_select = None));
         layer.push(
@@ -905,7 +938,7 @@ impl Menu {
                         .label(self.label)
                         .focus_group()
                         .w_full()
-                        .max_h(Self::MAX_H)
+                        .max_h(max_h)
                         .min_h(0.0)
                         .shrink()
                         .gap(2.0)

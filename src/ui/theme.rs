@@ -1,6 +1,5 @@
 //! Palette, type, the embedded Google Sans Flex font, icons, and the rune-kit theme.
 
-use super::i18n::Lang;
 use rune::{Color, Icon, TextStyle};
 use rune_kit::{Kit, PaletteSeed};
 
@@ -104,83 +103,9 @@ icons! {
     EMPTY = r#"<path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6l1.5 1.5h4.9A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5Z" stroke="currentColor" stroke-width="0.6" fill="none" stroke-linejoin="round"/>"#;
 }
 
-/// A language's flag, 3:2, beside its name in the language menu. Icons are one colour (they
-/// tint like glyphs), so these are SVG images (`App::flags`). Simplified to read at 20 points:
-/// no coats of arms, and the Union Jack's red saltire isn't counterchanged.
-pub fn flag_svg(lang: Lang) -> String {
-    let body: String = match lang {
-        Lang::En => concat!(
-            r##"<rect width="30" height="20" fill="#012169"/>"##,
-            r##"<path d="M0 0 30 20M30 0 0 20" stroke="#fff" stroke-width="4"/>"##,
-            r##"<path d="M0 0 30 20M30 0 0 20" stroke="#c8102e" stroke-width="1.4"/>"##,
-            r##"<path d="M15 0v20M0 10h30" stroke="#fff" stroke-width="6"/>"##,
-            r##"<path d="M15 0v20M0 10h30" stroke="#c8102e" stroke-width="3.4"/>"##,
-        ).into(),
-        Lang::Ru => stripes(&["#fff", "#0039a6", "#d52b1e"]),
-        Lang::Uk => stripes(&["#0057b7", "#ffd700"]),
-        Lang::De => stripes(&["#000", "#dd0000", "#ffce00"]),
-        Lang::Fr => concat!(
-            r##"<rect width="10" height="20" fill="#002395"/>"##,
-            r##"<rect x="10" width="10" height="20" fill="#fff"/>"##,
-            r##"<rect x="20" width="10" height="20" fill="#ed2939"/>"##,
-        ).into(),
-        Lang::Es => concat!(
-            r##"<rect width="30" height="20" fill="#aa151b"/>"##,
-            r##"<rect y="5" width="30" height="10" fill="#f1bf00"/>"##,
-        ).into(),
-        Lang::PtBr => concat!(
-            r##"<rect width="30" height="20" fill="#009c3b"/>"##,
-            r##"<path d="M15 2.5 27.5 10 15 17.5 2.5 10Z" fill="#ffdf00"/>"##,
-            r##"<circle cx="15" cy="10" r="4.4" fill="#002776"/>"##,
-        ).into(),
-        Lang::Pl => stripes(&["#fff", "#dc143c"]),
-        Lang::Tr => concat!(
-            r##"<rect width="30" height="20" fill="#e30a17"/>"##,
-            r##"<circle cx="10" cy="10" r="5" fill="#fff"/>"##,
-            r##"<circle cx="11.25" cy="10" r="4" fill="#e30a17"/>"##,
-            r##"<polygon fill="#fff" points="14.00,10.00 15.80,9.42 15.80,7.53 16.91,9.06 18.70,8.47 17.59,10.00 18.70,11.53 16.91,10.94 15.80,12.47 15.80,10.58"/>"##,
-        ).into(),
-        Lang::ZhCn => concat!(
-            r##"<rect width="30" height="20" fill="#ee1c25"/><g fill="#ffff00">"##,
-            r##"<polygon points="5.00,2.00 5.67,4.07 7.85,4.07 6.09,5.35 6.76,7.43 5.00,6.15 3.24,7.43 3.91,5.35 2.15,4.07 4.33,4.07"/>"##,
-            r##"<polygon points="9.14,2.51 9.62,1.97 9.25,1.34 9.91,1.63 10.39,1.08 10.33,1.80 11.00,2.09 10.29,2.25 10.22,2.97 9.85,2.35"/>"##,
-            r##"<polygon points="11.01,4.14 11.66,3.82 11.56,3.10 12.07,3.62 12.72,3.30 12.38,3.95 12.88,4.47 12.17,4.34 11.83,4.99 11.73,4.27"/>"##,
-            r##"<polygon points="11.04,6.73 11.76,6.70 11.96,6.00 12.21,6.68 12.94,6.66 12.37,7.10 12.62,7.79 12.01,7.38 11.44,7.83 11.64,7.13"/>"##,
-            r##"<polygon points="9.22,8.38 9.90,8.63 10.35,8.06 10.32,8.79 11.00,9.05 10.30,9.24 10.26,9.96 9.87,9.36 9.16,9.55 9.62,8.98"/>"##,
-            "</g>",
-        ).into(),
-        Lang::Ja => concat!(
-            r##"<rect width="30" height="20" fill="#fff"/>"##,
-            r##"<circle cx="15" cy="10" r="6" fill="#bc002d"/>"##,
-        ).into(),
-    };
-    format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 20" width="30" height="20">{body}</svg>"#)
-}
-
-/// Horizontal bands of equal height, top to bottom.
-fn stripes(colors: &[&str]) -> String {
-    let h = 20.0 / colors.len() as f32;
-    colors
-        .iter()
-        .enumerate()
-        .map(|(i, c)| format!(r#"<rect y="{}" width="30" height="{h}" fill="{c}"/>"#, i as f32 * h))
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Every flag parses as an SVG with something drawn in it.
-    #[test]
-    fn flags_are_svg() {
-        for lang in Lang::ALL {
-            let svg = flag_svg(lang);
-            assert!(svg.starts_with("<svg") && svg.ends_with("</svg>"), "{lang:?}");
-            assert!(svg.matches("fill=").count() >= 1, "{lang:?} draws nothing");
-            assert_eq!(svg.matches('<').count(), svg.matches('>').count(), "{lang:?}: {svg}");
-        }
-    }
 
     #[test]
     fn initials_of_names() {

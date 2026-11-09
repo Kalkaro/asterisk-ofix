@@ -57,6 +57,24 @@ impl Lang {
         Lang::ALL.into_iter().find(|l| l.code() == code)
     }
 
+    /// Its code as the header's language button and menu show it: the language without its
+    /// region, in capitals.
+    pub fn short(self) -> &'static str {
+        match self {
+            Lang::En => "EN",
+            Lang::Ru => "RU",
+            Lang::Uk => "UK",
+            Lang::De => "DE",
+            Lang::Fr => "FR",
+            Lang::Es => "ES",
+            Lang::PtBr => "PT",
+            Lang::Pl => "PL",
+            Lang::Tr => "TR",
+            Lang::ZhCn => "ZH",
+            Lang::Ja => "JA",
+        }
+    }
+
     /// The language's name in itself, as the menu lists it.
     pub fn name(self) -> &'static str {
         match self {
@@ -1141,6 +1159,16 @@ mod tests {
             assert_eq!(Lang::from_name(lang.name()), Some(lang));
         }
         assert_eq!(Lang::from_code("xx"), None);
+    }
+
+    /// The short code is the saved code's language, without a region, and tells each apart.
+    #[test]
+    fn short_codes_are_the_languages_codes() {
+        for lang in Lang::ALL {
+            assert_eq!(lang.short(), lang.code().split('-').next().unwrap().to_uppercase(), "{lang:?}");
+        }
+        let shorts: BTreeSet<&str> = Lang::ALL.iter().map(|l| l.short()).collect();
+        assert_eq!(shorts.len(), Lang::ALL.len());
     }
 
     #[test]

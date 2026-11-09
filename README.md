@@ -41,8 +41,8 @@ Every game gets its own Wine prefix, in `~/.local/share/asterofix/prefixes/`. Yo
 live there.
 
 The app speaks English, Russian, Ukrainian, German, French, Spanish, Brazilian Portuguese,
-Polish, Turkish, Simplified Chinese and Japanese. It follows your system's language; the globe
-at the end of the header picks another.
+Polish, Turkish, Simplified Chinese and Japanese. It follows your system's language; the language
+button at the end of the header picks another.
 
 Settings are in `~/.config/asterofix/config.json`, and each game's last log is in
 `~/.local/share/asterofix/logs/`.

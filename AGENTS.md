@@ -91,13 +91,14 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
   it's empty puts it away. Ctrl+F opens it too. There is no status bar: messages go
   through `App::set_status`, which shows a toast (above the search bar while it's open).
 - `src/ui/theme.rs`: palette, type, the embedded Google Sans Flex font, icons (SVG bodies),
-  the languages' flags, and the rune-kit `Kit`.
+  and the rune-kit `Kit`.
 - `src/ui/i18n.rs`: the UI's languages and every string the user reads, one `Strings` per
   language (a missing string doesn't build). Templates number their arguments (`{0}`), since
   word order differs; `fill` puts them in. The language is the system's (`Lang::detect`,
-  given the environment so tests never read the real one) until one is picked from the globe
-  at the header's end, which saves its code as `language` in config.json. The menu lists each
-  language in itself, beside its flag. New UI text goes in every language, never as a literal
+  given the environment so tests never read the real one) until one is picked from the language
+  button at the header's end (the globe and the language's code, `Lang::short`), which saves its
+  code as `language` in config.json. The menu lists each language in itself after its code, all
+  at once; no flags, they were the only colour in the UI. New UI text goes in every language, never as a literal
   in the view (`translations_keep_every_placeholder`, `languages_are_translated`). Errors
   from `launch.rs` and the like stay English: the CLI prints them too.
 - `src/background.rs`: the animated backdrop, ASCII stars on pure black, black and white
@@ -161,12 +162,12 @@ installer on the user's machine; check it in CI. Run `shellcheck` and `actionlin
 - Hyprland tiles windows smaller than the minimum size, and then the right edge is
   cropped. Keep `MIN_WINDOW` under 600 wide and the header fitting at it, in every language
   (`header_fits_at_every_width`). Where the measured labels don't fit (`header_labels`), the
-  buttons show just their icons one at a time: Add folder first, then Add game, then Install.
+  buttons show just their icons one at a time: the language button first, then Add folder, then
+  Add game, then Install.
   English keeps Add game's and Install's labels at the minimum.
 - The bundled font covers Latin scripts only. Cyrillic falls back to the system's DejaVu Sans,
   and Chinese and Japanese to Noto CJK, which Rune finds itself.
-- Icons are one colour (they tint like glyphs). The flags are SVG images made in `setup`
-  (`App::flags`), not `Icon`s.
+- Icons are one colour (they tint like glyphs).
 - Rune fades out removed elements by default, but in about 0.1 s, which reads as popping.
   Things that come and go (cards a search hides, the search bar, the toast) use the `FADE`
   springs, and the element that's actually removed carries the transition: a transition
