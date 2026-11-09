@@ -13,7 +13,7 @@ use rune::{
     text,
 };
 use rune_kit::{
-    Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Kit, Select, SelectAppearance, TextInput,
+    Button, ButtonVariant, ControlSize, Dialog, IconButton, IconButtonVariant, Kit, Select, SelectAppearance, TextInput,
 };
 use std::path::Path;
 
@@ -38,9 +38,12 @@ const HERO_ASPECT: f32 = 1920.0 / 620.0;
 pub const BG_BLUR: f32 = 0.8;
 const SEARCH_W: f32 = 520.0;
 /// What the header takes besides its texts' own widths: gutters, gaps, the logo, the icon
-/// buttons, and the labelled buttons' icons and padding: 293 points, plus the 20 kept clear of
-/// the window's edge.
-const HEADER_CHROME: f32 = 316.0;
+/// buttons, and the labelled buttons' icons and padding: 315 points, plus the 20 kept clear of
+/// the window's edge and a point for each button's rounding.
+const HEADER_CHROME: f32 = 338.0;
+/// A labelled button is its label and this wide; with just its icon it's `ICON_BUTTON` wide.
+const LABEL_PAD: f32 = 46.0;
+const ICON_BUTTON: f32 = 24.0;
 /// Things that come and go (cards a search hides, the toast) fade over about a third of a
 /// second. Rune's default presence fade is over in ~0.1 s, which reads as popping.
 const FADE: SpringPair = SpringPair::new(Spring::new(0.35, 0.0), Spring::new(0.35, 0.0));
@@ -98,6 +101,19 @@ pub const SCENES: &[Scene] = &[
     }),
     ("toast", |s| s.set_status(fill(s.t().launched, &[&"Pong", &"Proton 9.0"]))),
     ("language-menu", |s| s.open_select = Some("language")),
+    // A repack and its fix chosen, as they'd come from ~/Downloads.
+    ("install", |s| {
+        let downloads = s.paths.home.join("Downloads");
+        s.install_form = Some(super::InstallForm {
+            game: Some(downloads.join("Pong v1.2 by Someone/setup.exe")),
+            fix: Some(downloads.join("Pong-Multiplayer-Fix-Online.exe")),
+            plan: Some(Ok(crate::install::Plan {
+                name: "Pong".into(),
+                dest: s.paths.home.join(crate::install::INSTALL_DIR).join("Pong"),
+                steps: Vec::new(),
+            })),
+        });
+    }),
     // The second game is running, with its page open.
     ("running", |s| {
         if let Some(root) = s.games.get(1).map(|g| g.root.clone()) {
@@ -122,6 +138,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
         .h_full()
         .child(header(s, &k, size[0], &mut layer))
         .child(main(s, &k, size[0], &mut layer));
+    install_dialog(s, &k, &mut layer);
     let app = el()
         .key("app")
         .w_full()
@@ -146,14 +163,23 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     })
 }
 
-/// Whether the header's buttons fit with their labels at `width`. Some languages' labels are
-/// twice as long as English's; below this the buttons show just their icons
-/// (`header_fits_at_every_width`).
-fn header_labels_fit(t: &Strings, count: &str, width: f32) -> bool {
+/// How many of the header's buttons (Add folder, Add game, Install) keep their labels at
+/// `width`. Some languages' labels are twice as long as English's. As the window narrows Add
+/// folder shows just its icon first, then Add game, then Install (`header_fits_at_every_width`).
+fn header_labels(t: &Strings, count: &str, width: f32) -> usize {
     let w = |s: &str, style| rune::text::measure(s, &[], style, None).0;
-    let texts =
-        w(t.library, PAGE_TITLE) + w(count, CAPTION_STRONG) + w(t.add_folder, BODY_STRONG) + w(t.add_game, BODY_STRONG);
-    width >= HEADER_CHROME + texts
+    let labels = [t.add_folder, t.add_game, t.install];
+    let mut need = HEADER_CHROME
+        + w(t.library, PAGE_TITLE)
+        + w(count, CAPTION_STRONG)
+        + labels.iter().map(|l| w(l, BODY_STRONG)).sum::<f32>();
+    for (i, label) in labels.iter().enumerate() {
+        if width >= need {
+            return labels.len() - i;
+        }
+        need -= w(label, BODY_STRONG) + LABEL_PAD - ICON_BUTTON;
+    }
+    0
 }
 
 fn header(s: &App, k: &Kit, width: f32, layer: &mut Vec<El>) -> El {
@@ -161,14 +187,16 @@ fn header(s: &App, k: &Kit, width: f32, layer: &mut Vec<El>) -> El {
     let visible = s.visible().len();
     let count =
         if visible == s.games.len() { s.games.len().to_string() } else { fill(t.of, &[&visible, &s.games.len()]) };
-    let labels = header_labels_fit(t, &count, width);
-    let button = |label: &'static str, glyph: &'static rune::Icon, key: &'static str, f: fn(&mut App, &mut Tx)| {
-        if labels {
-            Button::new(label).icon(glyph).variant(ButtonVariant::Neutral).on_press_tx(f).build(k).key(key)
-        } else {
-            IconButton::new(glyph).label(label).help(label).on_press_tx(f).build(k).key(key)
-        }
-    };
+    // Those before `unlabelled` show just their icons.
+    let unlabelled = 3 - header_labels(t, &count, width);
+    let button =
+        |i: usize, label: &'static str, glyph: &'static rune::Icon, key: &'static str, f: fn(&mut App, &mut Tx)| {
+            if i >= unlabelled {
+                Button::new(label).icon(glyph).variant(ButtonVariant::Neutral).on_press_tx(f).build(k).key(key)
+            } else {
+                IconButton::new(glyph).label(label).help(label).on_press_tx(f).build(k).key(key)
+            }
+        };
     // Everything is anchored to the left edge. While a window is resized, the compositor
     // shows the last frame pinned to the left until the next one lands, so content pinned
     // to the right edge trails it and jitters (`header_is_anchored_left`).
@@ -202,17 +230,9 @@ fn header(s: &App, k: &Kit, width: f32, layer: &mut Vec<El>) -> El {
                 .build(k)
                 .key("rescan"),
         )
-        .child(button(t.add_folder, &FOLDER_PLUS, "add-folder", App::add_folder))
-        .child(button(t.add_game, &PLUS, "add-game", App::add_game))
-        .child(
-            IconButton::new(&DOWNLOAD)
-                .label(t.install)
-                .help(t.install_help)
-                .variant(IconButtonVariant::Ghost)
-                .on_press_tx(App::install)
-                .build(k)
-                .key("install"),
-        )
+        .child(button(0, t.add_folder, &FOLDER_PLUS, "add-folder", App::add_folder))
+        .child(button(1, t.add_game, &PLUS, "add-game", App::add_game))
+        .child(button(2, t.install, &DOWNLOAD, "install", |s, _| s.open_install()))
         .child(language_button(s, k, layer))
 }
 
@@ -545,7 +565,7 @@ fn empty(s: &App, k: &Kit) -> El {
                     Button::new(t.install)
                         .icon(&DOWNLOAD)
                         .variant(ButtonVariant::Neutral)
-                        .on_press_tx(App::install)
+                        .on_press(App::open_install)
                         .build(k)
                         .key("empty-install"),
                 ),
@@ -924,6 +944,113 @@ fn input(
 
 fn ghost(k: &Kit, label: &'static str, glyph: &'static rune::Icon, f: fn(&mut App, &mut Tx)) -> El {
     Button::new(label).icon(glyph).variant(ButtonVariant::Ghost).on_press_tx(f).build(k)
+}
+
+/// The Install popup, centred over the window: the game's installer and its online fix, where
+/// the game will go (or why it can't), and Install.
+fn install_dialog(s: &App, k: &Kit, layer: &mut Vec<El>) {
+    let Some(form) = &s.install_form else { return };
+    let t = s.t();
+    let home = &s.paths.home;
+    let chosen = |key: &'static str, name_key: &'static str, exe: &Option<std::path::PathBuf>| {
+        // A repack's setup.exe says little without its folder.
+        let shown = exe.as_deref().map(|p| match (p.parent(), p.file_name()) {
+            (Some(dir), Some(name)) => {
+                Path::new(&crate::scan::file_name(dir)).join(name).to_string_lossy().into_owned()
+            }
+            _ => p.to_string_lossy().into_owned(),
+        });
+        el().key(key)
+            .grow(1.0)
+            .min_w(0.0)
+            .h(32.0)
+            .px(10.0)
+            .center_y()
+            .radius(6.0)
+            .fill(RAISED)
+            .border(1.0, BORDER)
+            .child(
+                text(shown.unwrap_or_else(|| t.not_chosen.to_owned()))
+                    .font(BODY)
+                    .key(name_key)
+                    .color(if exe.is_some() { TEXT } else { FAINT })
+                    .truncate(),
+            )
+    };
+    let browse = |key: &'static str, f: fn(&mut App, &mut Tx)| {
+        Button::new(t.browse).variant(ButtonVariant::Neutral).on_press_tx(f).build(k).key(key)
+    };
+    let fix_row =
+        row().w_full().gap(8.0).center_y().child(chosen("install-fix", "install-fix-name", &form.fix)).children(
+            form.fix.is_some().then(|| {
+                IconButton::new(k.glyph.close)
+                    .label(t.remove)
+                    .help(t.remove)
+                    .variant(IconButtonVariant::Ghost)
+                    .on_press(|s: &mut App| s.choose_fix(None))
+                    .build(k)
+                    .key("install-fix-remove")
+            }),
+        );
+    let status = form.plan.as_ref().map(|plan| match plan {
+        Ok(plan) => {
+            let dest = match plan.dest.strip_prefix(home) {
+                Ok(rel) => format!("~/{}", rel.to_string_lossy()),
+                Err(_) => plan.dest.to_string_lossy().into_owned(),
+            };
+            text(fill(t.installs_to, &[&dest])).key("install-status").font(CAPTION).color(MUTED)
+        }
+        Err(e) => text(e.clone()).key("install-status").font(CAPTION).color(TEXT),
+    });
+    let ready = matches!(form.plan, Some(Ok(_)));
+    let body = col()
+        .key("install-form")
+        .w_full()
+        .px(16.0)
+        .pb(16.0)
+        .gap(14.0)
+        .child(field(
+            t.game_installer,
+            row()
+                .w_full()
+                .gap(8.0)
+                .center_y()
+                .child(chosen("install-game", "install-game-name", &form.game))
+                .child(browse("install-game-browse", App::browse_installer)),
+        ))
+        .child(field(t.online_fix, fix_row.child(browse("install-fix-browse", App::browse_fix))))
+        .children(status)
+        .child(
+            row()
+                .w_full()
+                .gap(8.0)
+                .mt(4.0)
+                .justify_end()
+                .child(
+                    Button::new(t.cancel)
+                        .variant(ButtonVariant::Ghost)
+                        .on_press(App::close_install)
+                        .build(k)
+                        .key("install-cancel"),
+                )
+                .child(
+                    Button::new(t.install)
+                        .icon(&DOWNLOAD)
+                        .variant(ButtonVariant::Contrast)
+                        .disabled(!ready)
+                        .on_press(App::confirm_install)
+                        .build(k)
+                        .key("install-confirm"),
+                ),
+        );
+    Dialog::new("install", t.install_title)
+        .open(true)
+        .description(t.install_description)
+        .width(520.0)
+        .fit()
+        .on_close(App::close_install)
+        .child(body)
+        .build(k, layer);
 }
 
 /// A floating message at the bottom of the window.

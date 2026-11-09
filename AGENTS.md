@@ -48,7 +48,7 @@ nix develop -c scripts/preview.sh /some/dir
 
 This renders `library.png`, `library-narrow.png`, `hover.png`, `page.png`,
 `page-narrow.png`, `options.png`, `proton-menu.png`, `search.png`, `no-matches.png`, `toast.png`, `running.png`,
-`language-menu.png`, and in other languages `page-ru.png`, `library-ru-narrow.png` and `page-ja.png` headlessly (Rune's
+`language-menu.png`, `install.png`, `install-narrow.png`, and in other languages `page-ru.png`, `library-ru-narrow.png` and `page-ja.png` headlessly (Rune's
 `--snap`, with the scenes in `view::SCENES`) from a made-up demo library:
 `scripts/demo_home.py` builds a throwaway home with Pong and Game 1 to 4, covers of white
 shapes on black already in the cache, and a fake Steam with a few Proton builds (Proton 9.0
@@ -110,8 +110,11 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
   so it resumes without jumping. `.blur(BG_BLUR)` softens it; the UI above stays sharp
   (`backdrop_is_blurred_behind_a_sharp_ui`). Keep it sparse: the user asked for something
   restrained.
-- `src/install.rs`: Install (the header's arrow, and `--install`). The game's installer, then
-  its online fix, picked in two file dialogs (Rune's picks one file at a time), run silently
+- `src/install.rs`: Install (the header's button, and `--install`). A popup in the middle of
+  the window (rune-kit's `Dialog`, `install_dialog` in view.rs) takes the game's installer and
+  its online fix, each with Browse (Rune's file dialog picks one file at a time); choosing the
+  installer fills in the fix downloaded beside it (`find_fix`), and the popup shows where the
+  game will go or why it can't. Install runs them silently
   (Inno Setup `/VERYSILENT /DIR=`, NSIS `/S /D=`) through the same Proton launch as games, into
   `~/Games/asterisk/<name>` and the prefix the game will play in. The name comes from the
   installer's name or its folder's, minus versions, "by <repacker>" and fix words.
@@ -157,8 +160,9 @@ installer on the user's machine; check it in CI. Run `shellcheck` and `actionlin
   exception, and only show briefly.
 - Hyprland tiles windows smaller than the minimum size, and then the right edge is
   cropped. Keep `MIN_WINDOW` under 600 wide and the header fitting at it, in every language
-  (`header_fits_at_every_width`). Where the measured labels don't fit (`header_labels_fit`),
-  Add folder and Add game show just their icons; English keeps its labels at the minimum.
+  (`header_fits_at_every_width`). Where the measured labels don't fit (`header_labels`), the
+  buttons show just their icons one at a time: Add folder first, then Add game, then Install.
+  English keeps Add game's and Install's labels at the minimum.
 - The bundled font covers Latin scripts only. Cyrillic falls back to the system's DejaVu Sans,
   and Chinese and Japanese to Noto CJK, which Rune finds itself.
 - Icons are one colour (they tint like glyphs). The flags are SVG images made in `setup`

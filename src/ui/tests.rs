@@ -785,7 +785,7 @@ fn cards_keep_their_size_while_resizing() {
 fn header_fits_at_every_width() {
     assert!(MIN_WINDOW.0 < 600.0);
     let mut ui = Ui::new(&[("A Game With A Really Long Name That Goes On", 0)]);
-    let labelled = |ui: &Ui| ui.rect("add-folder")[2] > 60.0;
+    let labelled = |ui: &Ui, key: &str| ui.rect(key)[2] > 60.0;
     for lang in Lang::ALL {
         ui.rt.update(move |s, _| s.lang = lang);
         for w in [MIN_WINDOW.0, 600.0, 680.0, 760.0, 900.0, 1300.0] {
@@ -795,10 +795,15 @@ fn header_fits_at_every_width() {
                 assert!(x + bw <= w - 20.0, "{lang:?} at width {w}: {key} ends at {}", x + bw);
             }
             if w == MIN_WINDOW.0 && lang == Lang::En {
-                assert!(labelled(&ui), "English keeps its labels even in the narrowest window");
+                // Add folder gives its label up first.
+                for key in ["add-game", "install"] {
+                    assert!(labelled(&ui, key), "English keeps {key}'s label even in the narrowest window");
+                }
             }
         }
-        assert!(labelled(&ui), "{lang:?}: a wide window has room for the labels");
+        for key in ["add-folder", "add-game", "install"] {
+            assert!(labelled(&ui, key), "{lang:?}: a wide window has room for {key}'s label");
+        }
     }
 }
 
@@ -854,20 +859,32 @@ fn toasts_speak_the_language() {
 
 /// During a live resize the compositor shows the last frame pinned to the window's left
 /// edge until the next lands, so anything placed from the right edge trails it and jitters.
-/// Nothing in the header moves when the window's width changes.
+/// Nothing in the header moves when the window's width changes, except where a button gives
+/// up its label for the narrower window: then the buttons after it close up.
 #[test]
 fn header_is_anchored_left() {
     let mut ui = Ui::new(&[("Hatch", 0)]);
-    let keys = ["logo", "library-title", "count", "rescan", "add-folder", "add-game", "install", "language-trigger"];
+    let fixed = ["logo", "library-title", "count", "rescan"];
+    let buttons = ["add-folder", "add-game", "install", "language-trigger"];
+    let rects = |ui: &Ui, keys: &[&str]| keys.iter().map(|k| ui.rect(k)).collect::<Vec<_>>();
     ui.resize(1300.0, 700.0);
-    let wide: Vec<_> = keys.iter().map(|k| ui.rect(k)).collect();
+    let left = rects(&ui, &fixed);
+    let mut prev = rects(&ui, &buttons);
     let mut w = 1299.0;
     while w >= MIN_WINDOW.0 {
         ui.rt.set_viewport((w, 700.0), 1.0);
         ui.rt.frame(1.0 / 60.0);
-        for (k, r) in keys.iter().zip(&wide) {
-            assert_eq!(&ui.rect(k), r, "width {w}: {k} moved with the window's right edge");
+        assert_eq!(rects(&ui, &fixed), left, "width {w}: the header's start moved with the window's right edge");
+        let now = rects(&ui, &buttons);
+        let collapsed = now.iter().zip(&prev).any(|(a, b)| a[2] < b[2]);
+        for ((k, a), b) in buttons.iter().zip(&now).zip(&prev) {
+            if collapsed {
+                assert!(a[0] <= b[0], "width {w}: {k} moved right");
+            } else {
+                assert_eq!(a, b, "width {w}: {k} moved with the window's right edge");
+            }
         }
+        prev = now;
         w -= 7.0;
     }
 }
@@ -1052,9 +1069,10 @@ impl Ui {
     }
 }
 
-/// Install asks for the game's installer, then for its fix (next to the repack's folder), and
-/// runs them silently one after the other, the game's first. The game lands in
-/// ~/Games/asterisk, which joins the libraries, and its page opens.
+/// Install opens a popup in the middle of the window. Choosing the game's installer (in
+/// ~/Downloads) fills in the fix downloaded beside its folder, and shows where the game will
+/// go. Install closes it and runs them silently one after the other, the game's first. The game
+/// lands in ~/Games/asterisk, which joins the libraries, and its page opens.
 #[test]
 fn install_runs_the_games_installer_then_its_fix() {
     let mut ui = Ui::new(&[]);
@@ -1062,14 +1080,40 @@ fn install_runs_the_games_installer_then_its_fix() {
     let fl = FakeLaunch::install(&mut ui);
     let (setup, fix) = ui.downloads();
     ui.click("empty-install");
+    ui.settle();
+    let [x, y, w, h] = ui.rect("install-dialog");
+    let centre = |a: f32, len: f32, of: f32| (a + len / 2.0 - of / 2.0).abs() <= 1.0;
+    assert!(centre(x, w, SIZE.0) && centre(y, h, SIZE.1), "the popup is centred: {:?}", [x, y, w, h]);
+    ui.click("install-confirm");
+    assert_eq!(fl.count(), 0, "nothing to install until the game's installer is chosen");
+    assert!(ui.find("install-dialog").is_some());
+
+    ui.click("install-game-browse");
+    let (kind, options) = ui.rt.file_dialog().expect("a picker for the game's installer");
+    assert_eq!(kind, rune::FileDialogKind::Open);
+    assert_eq!(options.directory.as_deref(), Some(ui.home.path().join("Downloads").as_path()));
     ui.rt.resolve_file_dialog(Some(setup.clone())).unwrap();
     ui.settle();
-    let (kind, options) = ui.rt.file_dialog().expect("a picker for the fix");
-    assert_eq!(kind, rune::FileDialogKind::Open);
+    let form = |ui: &Ui| ui.rt.state.install_form.as_ref().map(|f| (f.game.clone(), f.fix.clone()));
+    assert_eq!(form(&ui), Some((Some(setup.clone()), Some(fix.clone()))), "the fix beside it is found");
+    assert_eq!(ui.text("install-game-name"), "Lucid Cats v2.4 by Pioneer/setup.exe");
+    assert_eq!(ui.text("install-fix-name"), "Downloads/Lucid-Cats-Multiplayer-Fix-Online.exe");
+    assert_eq!(ui.text("install-status"), "Installs to ~/Games/asterisk/Lucid Cats");
+
+    // Removed, and chosen again by hand, where it was downloaded.
+    ui.click("install-fix-remove");
+    ui.settle();
+    assert_eq!(form(&ui), Some((Some(setup.clone()), None)));
+    assert_eq!(ui.text("install-fix-name"), "Not chosen");
+    ui.click("install-fix-browse");
+    let (_, options) = ui.rt.file_dialog().expect("a picker for the fix");
     assert_eq!(options.directory.as_deref(), Some(ui.home.path().join("Downloads").as_path()));
     ui.rt.resolve_file_dialog(Some(fix.clone())).unwrap();
     ui.settle();
 
+    ui.click("install-confirm");
+    ui.settle();
+    assert!(ui.find("install-dialog").is_none(), "the popup closes");
     let dest = ui.home.path().join("Games/asterisk/Lucid Cats");
     assert_eq!(fl.count(), 1);
     let spec = fl.0.borrow().0[0].clone();
@@ -1082,7 +1126,8 @@ fn install_runs_the_games_installer_then_its_fix() {
     }
     assert_eq!(ui.toast(), "Installing Lucid Cats\u{2026}");
     ui.click("install");
-    assert!(ui.rt.file_dialog().is_none() && ui.toast() == "Already installing Lucid Cats");
+    ui.settle();
+    assert!(ui.find("install-dialog").is_none() && ui.toast() == "Already installing Lucid Cats");
 
     add_game(dest.parent().unwrap(), "Lucid Cats", 0);
     fl.exit();
@@ -1098,6 +1143,30 @@ fn install_runs_the_games_installer_then_its_fix() {
     assert_eq!(ui.rt.state.selected.as_deref(), Some(dest.as_path()));
     assert!(Config::load(&ui.paths()).libraries.contains(&dest.parent().unwrap().to_path_buf()));
     assert!(ui.rt.state.installing.is_none());
+}
+
+/// What can't be installed says why in the popup, and Install stays off. Escape closes it,
+/// and typing while it's open doesn't start a search behind it.
+#[test]
+fn the_install_popup_says_why_it_cant_install() {
+    let mut ui = Ui::new(&[("Pong", 0)]);
+    ui.with_proton();
+    let fl = FakeLaunch::install(&mut ui);
+    let (setup, _) = ui.downloads();
+    add_game(&ui.home.path().join("Games/asterisk"), "Lucid Cats", 0);
+    ui.click("install");
+    ui.settle();
+    ui.rt.update(move |s, _| s.choose_installer(setup));
+    ui.settle();
+    assert!(ui.text("install-status").ends_with("Lucid Cats already exists"), "{:?}", ui.text("install-status"));
+    ui.click("install-confirm");
+    assert_eq!(fl.count(), 0);
+
+    ui.type_text("p");
+    assert!(!ui.rt.state.search_open);
+    ui.key(Key::Escape);
+    ui.settle();
+    assert!(ui.find("install-dialog").is_none() && ui.rt.state.install_form.is_none());
 }
 
 /// A failed installer stops the install: its fix never runs over a half-installed game.

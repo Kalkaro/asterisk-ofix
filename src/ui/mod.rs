@@ -72,6 +72,8 @@ pub struct App {
     pub logs: HashMap<PathBuf, PathBuf>,
     /// The game being installed, and which of its installers is running.
     pub installing: Option<(Plan, usize)>,
+    /// The Install popup, while it's open.
+    pub install_form: Option<InstallForm>,
     pub form: Form,
     /// The open dropdown on the page.
     pub open_select: Option<&'static str>,
@@ -103,6 +105,15 @@ pub struct Form {
     pub overrides: TextEdit,
     pub env: TextEdit,
     pub prefix: TextEdit,
+}
+
+/// What the Install popup has chosen.
+#[derive(Default)]
+pub struct InstallForm {
+    pub game: Option<PathBuf>,
+    pub fix: Option<PathBuf>,
+    /// What installing them would do, or why it can't; None until one is chosen.
+    pub plan: Option<Result<Plan, String>>,
 }
 
 pub struct Toast {
@@ -151,6 +162,7 @@ impl App {
             stopping: HashSet::new(),
             logs: HashMap::new(),
             installing: None,
+            install_form: None,
             form: Form::default(),
             open_select: None,
             toast: None,
@@ -245,6 +257,9 @@ impl App {
     pub fn on_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         let plain = !(ev.mods.cmd || ev.mods.ctrl || ev.mods.alt || ev.mods.logo);
         match &ev.key {
+            Key::Escape if self.install_form.is_some() => self.close_install(),
+            // Nothing behind the popup takes keys.
+            _ if self.install_form.is_some() => return false,
             Key::Escape if self.search_open => self.close_search(),
             Key::Escape if self.open_select.is_some() => self.open_select = None,
             Key::Escape if self.selected.is_some() => self.close_page(),
@@ -572,31 +587,69 @@ impl App {
         self.rescan();
     }
 
-    /// Asks for a game's installer, then for its online fix, and installs them silently,
-    /// the game first.
-    pub fn install(&mut self, tx: &mut Tx) {
-        if let Some((plan, _)) = &self.installing {
-            return self.set_status(fill(self.t().already_installing, &[&plan.name]));
-        }
-        let t = self.t();
-        let options = FileDialogOptions { title: t.install_game_title.into(), ..Default::default() }
-            .filter(t.windows_programs, &["exe", "EXE"]);
-        tx.open_file(options, |s: &mut App, result, tx| match result {
-            Ok(Some(setup)) => {
-                // Fixes are usually downloaded beside the repack's folder.
-                let dir = setup.parent().and_then(Path::parent).map(Path::to_path_buf);
-                let t = s.t();
-                let options =
-                    FileDialogOptions { title: t.install_fix_title.into(), directory: dir, ..Default::default() }
-                        .filter(t.windows_programs, &["exe", "EXE"]);
-                tx.open_file(options, move |s: &mut App, result, _| match result {
-                    Ok(fix) => s.start_install(std::iter::once(setup).chain(fix).collect()),
-                    Err(e) => s.set_status(fill(s.t().file_picker_failed, &[&e])),
-                });
+    /// Opens the Install popup, where the game's installer and its online fix are chosen.
+    pub fn open_install(&mut self) {
+        match &self.installing {
+            Some((plan, _)) => self.set_status(fill(self.t().already_installing, &[&plan.name])),
+            None => {
+                self.open_select = None;
+                self.install_form = Some(InstallForm::default());
             }
-            Ok(None) => {}
-            Err(e) => s.set_status(fill(s.t().file_picker_failed, &[&e])),
-        });
+        }
+    }
+
+    pub fn close_install(&mut self) {
+        self.install_form = None;
+    }
+
+    /// Asks for the game's installer, in ~/Downloads at first.
+    pub fn browse_installer(&mut self, tx: &mut Tx) {
+        let form = self.install_form.as_ref();
+        let dir = form.and_then(|f| f.game.as_deref()?.parent().map(Path::to_path_buf));
+        let dir = dir.or_else(|| Some(self.paths.home.join("Downloads")).filter(|d| d.is_dir()));
+        pick_exe(tx, self.t(), self.t().install_game_title, dir, |s, exe| s.choose_installer(exe));
+    }
+
+    /// Asks for the online fix, beside the game's installer's folder, where it's usually
+    /// downloaded.
+    pub fn browse_fix(&mut self, tx: &mut Tx) {
+        let form = self.install_form.as_ref();
+        let dir = form.and_then(|f| f.fix.as_ref().or(f.game.as_ref())?.parent().map(Path::to_path_buf));
+        let dir = match form.and_then(|f| f.fix.as_ref()) {
+            Some(_) => dir,
+            None => dir.and_then(|d| d.parent().map(Path::to_path_buf)),
+        };
+        pick_exe(tx, self.t(), self.t().install_fix_title, dir, |s, exe| s.choose_fix(Some(exe)));
+    }
+
+    /// Takes `exe` as the game's installer, and the fix downloaded beside it unless one was
+    /// chosen already.
+    pub fn choose_installer(&mut self, exe: PathBuf) {
+        let Some(form) = &mut self.install_form else { return };
+        if form.fix.is_none() {
+            form.fix = crate::install::find_fix(&exe);
+        }
+        form.game = Some(exe);
+        self.plan_install();
+    }
+
+    pub fn choose_fix(&mut self, exe: Option<PathBuf>) {
+        let Some(form) = &mut self.install_form else { return };
+        form.fix = exe;
+        self.plan_install();
+    }
+
+    /// Works out what the chosen installers would do, for the popup to show.
+    fn plan_install(&mut self) {
+        let Some(form) = &mut self.install_form else { return };
+        let files: Vec<PathBuf> = form.game.iter().chain(&form.fix).cloned().collect();
+        form.plan = (!files.is_empty()).then(|| crate::install::plan(&self.paths, &files));
+    }
+
+    /// The popup's Install: closes it and runs the installers.
+    pub fn confirm_install(&mut self) {
+        let Some(form) = self.install_form.take() else { return };
+        self.start_install(form.game.into_iter().chain(form.fix).collect());
     }
 
     /// Installs the game from `files`, its installer and online fixes in any order, into

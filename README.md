@@ -29,10 +29,10 @@ Put your games in `~/Games`, or add another folder with **Add folder**. Any fold
 OnlineFix's files in it (`OnlineFix*.dll`/`.ini` or `SteamFix*.dll`/`.ini`) shows up as a
 game. **Add game** takes an `.exe` directly.
 
-**Install** (the arrow in the header) installs a game for you: pick the game's installer (a
-repack's `setup.exe`), then its online fix (or cancel to skip it). Both run silently through
-Proton, the game first and the fix after, into `~/Games/asterisk/<game>`. Inno Setup and NSIS
-installers work.
+**Install** installs a game for you: choose the game's installer (a repack's `setup.exe`) and
+its online fix in the popup. A fix downloaded next to the installer's folder is filled in for
+you; it's optional. Both run silently through Proton, the game first and the fix after, into
+`~/Games/asterisk/<game>`. Inno Setup and NSIS installers work.
 
 Steam has to be running and logged in. If it isn't, Play starts it; press Play again once
 you're logged in.

@@ -4,7 +4,7 @@
 
 use crate::launch::{LaunchSpec, default_prefix, shell_quote};
 use crate::paths::Paths;
-use crate::scan::{file_name, pretty_name};
+use crate::scan::{file_name, pretty_name, read_dir_sorted};
 use crate::steam::Proton;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -143,6 +143,19 @@ fn windows_path(path: &Path) -> String {
     format!("Z:{}", path.to_string_lossy().replace('/', "\\"))
 }
 
+/// The online fix downloaded for the game `setup` installs: beside it, or beside its folder
+/// (a repack's folder and the fix next to it in ~/Downloads).
+pub fn find_fix(setup: &Path) -> Option<PathBuf> {
+    let name = game_name(setup).to_lowercase();
+    let dirs = [setup.parent(), setup.parent().and_then(Path::parent)];
+    dirs.into_iter().flatten().flat_map(read_dir_sorted).find(|p| {
+        p != setup
+            && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe"))
+            && looks_like_fix(p)
+            && game_name(p).to_lowercase() == name
+    })
+}
+
 /// Whether an installer's name says it's an online fix rather than a game.
 pub fn looks_like_fix(exe: &Path) -> bool {
     words(&stem(exe)).iter().any(|w| matches!(w.to_lowercase().as_str(), "fix" | "onlinefix" | "steamfix"))
@@ -260,6 +273,18 @@ mod tests {
         assert!(looks_like_fix(Path::new("/d/Game OnlineFix.exe")));
         assert!(!looks_like_fix(Path::new("/d/Lucid Cats v2.4 by Pioneer/setup.exe")));
         assert!(!looks_like_fix(Path::new("/d/Fixer Upper/setup.exe")));
+    }
+
+    #[test]
+    fn finds_the_fix_downloaded_for_the_same_game() {
+        let downloads = tempdir();
+        let setup = installer(&downloads.path().join("Lucid Cats v2.4 by Pioneer"), "setup.exe", Kind::Inno);
+        assert_eq!(find_fix(&setup), None);
+        installer(downloads.path(), "Chained-Beasts-Multiplayer-Fix-Online.exe", Kind::Inno);
+        installer(downloads.path(), "Lucid Cats Soundtrack.exe", Kind::Inno);
+        assert_eq!(find_fix(&setup), None, "another game's fix, or not a fix");
+        let fix = installer(downloads.path(), "Lucid-Cats-Multiplayer-Fix-Online.exe", Kind::Inno);
+        assert_eq!(find_fix(&setup), Some(fix));
     }
 
     #[test]
