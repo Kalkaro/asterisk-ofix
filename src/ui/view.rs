@@ -157,6 +157,12 @@ pub const SCENES: &[Scene] = &[
             s.uninstall_confirm = Some(root);
         }
     }),
+    // The Library folders popup, with one folder that's gone.
+    ("folders", |s| {
+        let gone = s.paths.home.join("Games on the old disk");
+        s.cfg.libraries.push(gone);
+        s.folders_open = true;
+    }),
     // The second game is running, with its page open.
     ("running", |s| {
         if let Some(root) = s.games.get(1).map(|g| g.root.clone()) {
@@ -190,6 +196,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     let progress = install_progress(s, &k, size[0], floor);
     let toast_bottom = if progress.is_some() { floor + PROGRESS_H + 10.0 } else { floor };
     uninstall_dialog(s, &k, &mut layer);
+    folders_dialog(s, &k, &mut layer);
     let app = el()
         .key("app")
         .w_full()
@@ -288,7 +295,7 @@ fn header(s: &App, k: &Kit, width: f32, layer: &mut Vec<El>) -> El {
         .child(text(t.library).key("library-title").font(PAGE_TITLE).color(TEXT))
         .child(text(count).key("count").font(CAPTION_STRONG).color(MUTED).px(8.0).py(2.0).radius(10.0).fill(RAISED))
         .child(reload_button(s, k))
-        .child(button(1, t.add_folder, &FOLDER_PLUS, "add-folder", App::add_folder))
+        .child(button(1, t.add_folder, &FOLDER_PLUS, "add-folder", App::open_folders))
         .child(button(2, t.add_game, &PLUS, "add-game", App::add_game))
         .child(button(3, t.install, &DOWNLOAD, "install", |s, _| s.open_install()))
         .child(language_button(s, k, unlabelled == 0, layer))
@@ -1359,6 +1366,61 @@ fn install_dialog(s: &App, k: &Kit, layer: &mut Vec<El>) {
         .width(520.0)
         .fit()
         .on_close(App::close_install)
+        .child(body)
+        .build(k, layer);
+}
+
+/// The Library folders popup: each folder games are found in, with a button that stops looking
+/// there (deleting nothing), and Add folder for another.
+fn folders_dialog(s: &App, k: &Kit, layer: &mut Vec<El>) {
+    if !s.folders_open {
+        return;
+    }
+    let t = s.t();
+    let rows = s.cfg.libraries.iter().enumerate().map(|(i, dir)| {
+        let shown = tilde(dir, &s.paths.home);
+        let shown = if dir.is_dir() { shown } else { fill(t.prefix_owner_gone, &[&shown]) };
+        let at = dir.clone();
+        row()
+            .key(format!("library{i}"))
+            .w_full()
+            .gap(10.0)
+            .pl(10.0)
+            .pr(4.0)
+            .py(4.0)
+            .center_y()
+            .radius(6.0)
+            .fill(RAISED)
+            .border(1.0, BORDER)
+            .child(icon(&FOLDER, 16.0).color(MUTED))
+            .child(text(shown).key("path").font(BODY).color(TEXT).wrap_anywhere().grow(1.0).min_w(0.0))
+            .child(
+                IconButton::new(k.glyph.close)
+                    .label(t.remove)
+                    .help(t.remove)
+                    .variant(IconButtonVariant::Ghost)
+                    .on_press(move |s: &mut App| s.remove_library(&at))
+                    .build(k)
+                    .key("remove"),
+            )
+    });
+    let none = s.cfg.libraries.is_empty().then(|| text(t.no_folders).key("no-folders").font(BODY).color(MUTED));
+    let body = col().key("folders-form").w_full().px(16.0).pb(16.0).gap(8.0).children(rows).children(none).child(
+        row().w_full().gap(8.0).mt(10.0).justify_end().child(
+            Button::new(t.add_folder)
+                .icon(&FOLDER_PLUS)
+                .variant(ButtonVariant::Contrast)
+                .on_press_tx(App::add_folder)
+                .build(k)
+                .key("folders-add"),
+        ),
+    );
+    Dialog::new("folders", t.folders_title)
+        .open(true)
+        .description(t.folders_description)
+        .width(480.0)
+        .fit()
+        .on_close(|s: &mut App| s.folders_open = false)
         .child(body)
         .build(k, layer);
 }

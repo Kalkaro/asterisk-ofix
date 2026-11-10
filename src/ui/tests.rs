@@ -1808,6 +1808,44 @@ fn add_folder_asks_for_a_folder_and_scans_it() {
     assert!(Config::load(&ui.paths()).libraries.contains(&lib));
 }
 
+/// With folders in the library, the header's Add folder lists them in a popup: one is
+/// removed there (its games go, its files stay), and another is added from it.
+#[test]
+fn library_folders_are_listed_added_and_removed() {
+    let mut ui = Ui::new(&[("Pong", 0)]);
+    let more = ui.home.path().join("More");
+    add_game(&more, "Hatch", 0);
+    ui.click("add-folder");
+    ui.settle();
+    assert!(ui.rt.file_dialog().is_none() && ui.find("folders-dialog").is_some(), "the popup, not the picker");
+    assert_eq!(ui.text("library0/path"), "~/Games");
+    ui.click("folders-add");
+    ui.rt.resolve_file_dialog(Some(more.clone())).unwrap();
+    ui.settle();
+    assert_eq!(ui.text("library1/path"), "~/More", "it stays open, with the new folder");
+    assert_eq!(ui.card_names(), ["Hatch", "Pong"]);
+
+    ui.type_text("p");
+    assert!(!ui.rt.state.search_open, "nothing behind it takes keys");
+    ui.click("library0/remove");
+    ui.settle();
+    assert_eq!(ui.toast(), "Stopped looking for games in ~/Games");
+    assert_eq!(ui.card_names(), ["Hatch"]);
+    assert_eq!(Config::load(&ui.paths()).libraries, [more.clone()]);
+    assert!(ui.game("Pong").is_dir(), "nothing is deleted");
+    assert_eq!(ui.text("library0/path"), "~/More");
+
+    ui.click("library0/remove");
+    ui.settle();
+    assert_eq!(ui.text("no-folders"), "No folders yet.");
+    ui.key(Key::Escape);
+    ui.settle();
+    assert!(ui.find("folders-dialog").is_none());
+    // With none left, Add folder goes straight to the picker.
+    ui.click("add-folder");
+    assert!(ui.rt.file_dialog().is_some());
+}
+
 impl Ui {
     /// Installs a fake Steam with one Proton build, its default, and has the app find it.
     fn with_proton(&mut self) {

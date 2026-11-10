@@ -48,7 +48,7 @@ nix develop -c scripts/preview.sh /some/dir
 
 This renders `library.png`, `library-narrow.png`, `hover.png`, `page.png`,
 `page-narrow.png`, `options.png`, `proton-menu.png`, `prefix-menu.png`, `prefix-menu-narrow.png`, `old-saves.png`, `old-saves-narrow.png`, `search.png`, `no-matches.png`, `toast.png`, `running.png`,
-`language-menu.png`, `install.png`, `install-narrow.png`, `install-progress.png`, `uninstall.png`, `uninstall-narrow.png`, and in other languages `page-ru.png`, `library-ru-narrow.png`, `page-ja.png`, `page-fr.png` and `old-saves-fr.png` headlessly (Rune's
+`language-menu.png`, `install.png`, `install-narrow.png`, `install-progress.png`, `uninstall.png`, `uninstall-narrow.png`, `folders.png`, `folders-narrow.png`, and in other languages `page-ru.png`, `library-ru-narrow.png`, `page-ja.png`, `page-fr.png` and `old-saves-fr.png` headlessly (Rune's
 `--snap`, with the scenes in `view::SCENES`) from a made-up demo library:
 `scripts/demo_home.py` builds a throwaway home with Pong and Game 1 to 4, black and white
 covers drawn like box art (a little scene each, no titles) already in the cache, and a fake Steam with a few Proton builds (Proton 9.0
@@ -141,6 +141,11 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
   installing again just works. It removes only a `fresh` plan's own folder right under
   `~/Games/asterofix`, never the prefix, and a failed fix leaves the game alone. Cancelling
   cleans up the same way.
+- Library folders: the header's Add folder opens the Library folders popup (`folders_dialog`
+  in view.rs, `App::folders_open`) once `cfg.libraries` has any, and the folder picker while
+  it's empty. The popup lists them, each with a button that stops looking there
+  (`App::remove_library`: it drops the folder from the config and rescans, deleting nothing and
+  keeping games' settings), and has its own Add folder.
 - `src/uninstall.rs`: how a game leaves the library, from the last of its page's actions after
   Copy command (an icon unless its label fits, `page_labels`). Which one depends on
   `App::origin`: a game the last scan found in a library folder (`App::from_library`) gets

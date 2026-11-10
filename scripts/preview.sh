@@ -42,6 +42,8 @@ snap install-narrow --scene install --size 540x600
 snap install-progress --scene install-progress --size 1080x720
 snap uninstall --scene uninstall --size 1080x720
 snap uninstall-narrow --scene uninstall --size 540x600
+snap folders --scene folders --size 1080x720
+snap folders-narrow --scene folders --size 540x600
 LANG=ru_RU.UTF-8 snap page-ru --scene options --size 1080x720
 LANG=ru_RU.UTF-8 snap library-ru-narrow --size 600x600
 LANG=ja_JP.UTF-8 snap page-ja --scene page --size 1280x760

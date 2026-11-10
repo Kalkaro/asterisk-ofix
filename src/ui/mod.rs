@@ -117,6 +117,8 @@ pub struct App {
     pub uninstall_confirm: Option<PathBuf>,
     /// Games whose folders are being deleted.
     pub uninstalling: HashSet<PathBuf>,
+    /// The Library folders popup is open.
+    pub folders_open: bool,
     pub form: Form,
     /// The prefixes there are, for the Prefix field's menu: read when a page or that menu
     /// opens, never per frame.
@@ -246,6 +248,7 @@ impl App {
             from_library: HashSet::new(),
             uninstall_confirm: None,
             uninstalling: HashSet::new(),
+            folders_open: false,
             form: Form::default(),
             prefixes: Vec::new(),
             old_saves: Vec::new(),
@@ -370,8 +373,9 @@ impl App {
         match &ev.key {
             Key::Escape if self.install_form.is_some() => self.close_install(),
             Key::Escape if self.uninstall_confirm.is_some() => self.uninstall_confirm = None,
+            Key::Escape if self.folders_open => self.folders_open = false,
             // Nothing behind a popup takes keys.
-            _ if self.install_form.is_some() || self.uninstall_confirm.is_some() => return false,
+            _ if self.install_form.is_some() || self.uninstall_confirm.is_some() || self.folders_open => return false,
             Key::Escape if self.search_open => self.close_search(),
             Key::Escape if self.open_select.is_some() => self.open_select = None,
             Key::Escape if self.selected.is_some() => self.close_page(),
@@ -978,6 +982,34 @@ impl App {
             Ok(None) => {}
             Err(e) => s.set_status(fill(s.t().folder_picker_failed, &[&e])),
         });
+    }
+
+    /// The header's Add folder: the Library folders popup, where folders are added and
+    /// removed, or straight to the folder picker while there are none.
+    pub fn open_folders(&mut self, tx: &mut Tx) {
+        self.open_select = None;
+        if self.cfg.libraries.is_empty() {
+            return self.add_folder(tx);
+        }
+        self.folders_open = true;
+    }
+
+    /// Stops looking for games in a library folder. Nothing in it is touched, and games' settings
+    /// stay, so adding it again brings them back as they were.
+    pub fn remove_library(&mut self, dir: &Path) {
+        let before = self.cfg.libraries.len();
+        self.cfg.libraries.retain(|d| d != dir);
+        if self.cfg.libraries.len() == before {
+            return;
+        }
+        self.log.line(format!("Removed the library {}", dir.display()));
+        self.save();
+        self.rescan();
+        let shown = match dir.strip_prefix(&self.paths.home) {
+            Ok(rel) => format!("~/{}", rel.to_string_lossy()),
+            Err(_) => dir.to_string_lossy().into_owned(),
+        };
+        self.set_status(fill(self.t().library_removed, &[&shown]));
     }
 
     pub fn add_library(&mut self, dir: PathBuf) {
