@@ -75,7 +75,10 @@ There's also a command line, for scripts:
 asterofix --launch ~/Games/SomeGame          # start a game and wait for it to exit
 asterofix --launch path/to/game.exe --print  # show the command instead of running it
 asterofix --install 'Game v1.0 by Someone/setup.exe' Game-Fix.exe  # install both silently
+asterofix --version
 ```
+
+`asterofix --help` lists the options.
 
 ## Building
 

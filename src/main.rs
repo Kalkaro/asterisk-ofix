@@ -4,6 +4,7 @@
 mod applog;
 mod art;
 mod background;
+mod cli;
 mod config;
 mod install;
 #[cfg(test)]
@@ -19,39 +20,17 @@ mod vdf;
 
 use std::path::{Path, PathBuf};
 
-const USAGE: &str = "usage: asterofix [--launch GAME [--print] [--prefix DIR]] [--install SETUP [FIX...]]
-
-  --launch GAME   launch this game's .exe (or game folder) without the window, and wait for it
-  --print         with --launch: print the command instead of running it
-  --prefix DIR    with --launch: the Wine prefix to use
-  --install EXE.. install a game silently into ~/Games/asterofix from its installer, then its
-                  online fix (or just a fix, into the game installed before)";
-
 fn main() {
-    let mut launch: Option<PathBuf> = None;
-    let mut prefix: Option<PathBuf> = None;
-    let mut print = false;
-    let mut install: Vec<PathBuf> = Vec::new();
-    let mut args = std::env::args().skip(1).peekable();
-    while let Some(a) = args.next() {
-        match a.as_str() {
-            "--install" | "-install" => {
-                while let Some(exe) = args.next_if(|a| !a.starts_with('-')) {
-                    install.push(PathBuf::from(exe));
-                }
-            }
-            "--launch" | "-launch" => launch = args.next().map(PathBuf::from),
-            "--prefix" | "-prefix" => prefix = args.next().map(PathBuf::from),
-            "--print" | "-print" => print = true,
-            "-h" | "--help" => return println!("{USAGE}"),
-            // Everything else is Rune's (headless --snap, --tree, ...).
-            _ => {}
+    let result = match cli::parse(std::env::args().skip(1)) {
+        Ok(cli::Command::Window) => return ui::run(),
+        Ok(cli::Command::Help) => return println!("{}", cli::USAGE),
+        Ok(cli::Command::Version) => return println!("asterofix {}", applog::VERSION),
+        Ok(cli::Command::Launch { game, prefix, print }) => launch_cli(&game, prefix, print),
+        Ok(cli::Command::Install(files)) => install_cli(&files),
+        Err(e) => {
+            eprintln!("asterofix: {e}\n\n{}", cli::USAGE);
+            std::process::exit(2);
         }
-    }
-    let result = match launch {
-        _ if !install.is_empty() => install_cli(&install),
-        Some(target) => launch_cli(&target, prefix, print),
-        None => return ui::run(),
     };
     if let Err(e) = result {
         eprintln!("asterofix: {e}");
@@ -64,7 +43,8 @@ fn launch_cli(target: &Path, prefix: Option<PathBuf>, print: bool) -> Result<(),
     let steam = steam::detect(&paths.home).ok_or("Steam installation not found")?;
     let target = std::path::absolute(target).map_err(|e| e.to_string())?;
     let game = if target.is_dir() {
-        scan::detect_game(&target).ok_or_else(|| format!("no Steam Fix / Online Fix files found in {}", target.display()))?
+        scan::detect_game(&target)
+            .ok_or_else(|| format!("no Steam Fix / Online Fix files found in {}", target.display()))?
     } else {
         scan::game_from_exe(&target)
     };

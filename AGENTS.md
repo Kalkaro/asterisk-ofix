@@ -127,6 +127,9 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
   library cache first, then the Steam CDN.
 - `src/scan.rs`, `src/steam.rs`, `src/launch.rs`, `src/vdf.rs`, `src/config.rs`,
   `src/paths.rs`: game detection, Proton/Steam discovery, launching, config and paths.
+- `src/cli.rs`: the command line (`cli::parse`, pure). Unknown flags are errors (exit 2), so
+  Rune's own flags (`--snap`, `--scene`, ...) are listed there, copied from Rune's
+  `tooling/args.rs`; update the list when bumping Rune.
 
 ## AppImage and install.sh
 
