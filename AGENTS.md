@@ -76,7 +76,9 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
 - `src/ui/view.rs`: the view. The starfield, the header, the card grid, the game page and
   the toast. A single click on a card opens the game's page right away, in the grid's
   place: its cover (which flies there from the card, `matched`), name, Play, Folder, Log,
-  Copy command, and the launch options, collapsed until asked for. The game's hero art
+  Copy command, and the launch options, collapsed until asked for. The options start with a
+  Name field that renames the game (`GameSettings.name`; its placeholder is the detected name,
+  `App::detected_name`), which re-sorts the library. The game's hero art
   sits faint behind it, fading into the stars. The grid stays mounted under the page,
   hidden and inert, so it comes back scrolled where it was; Back or Escape goes back, and
   typing a search does too. A double click (`on_double_press`), or the play button that

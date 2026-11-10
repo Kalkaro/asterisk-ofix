@@ -124,6 +124,7 @@ pub struct Images {
 /// The page's text fields.
 #[derive(Default)]
 pub struct Form {
+    pub name: TextEdit,
     pub fake_id: TextEdit,
     pub args: TextEdit,
     pub overrides: TextEdit,
@@ -379,8 +380,12 @@ impl App {
 
     pub fn display_name(&self, g: &Game) -> String {
         let s = self.cfg.settings(&g.root);
-        let art = self.art.get(g.real_id);
-        first_non_empty(&s.name, first_non_empty(&art.name, &g.name)).to_owned()
+        first_non_empty(&s.name, &self.detected_name(g)).to_owned()
+    }
+
+    /// The game's name without a rename: its Steam name, or its folder's.
+    pub fn detected_name(&self, g: &Game) -> String {
+        first_non_empty(&self.art.get(g.real_id).name, &g.name).to_owned()
     }
 
     /// The reload button: rescans, and turns its icon once.
@@ -528,6 +533,7 @@ impl App {
         let s = self.current().map(|g| self.cfg.settings(&g.root)).unwrap_or_default();
         let fake = if s.fake_app_id == 0 { String::new() } else { s.fake_app_id.to_string() };
         self.form = Form {
+            name: TextEdit::new(s.name),
             fake_id: TextEdit::new(fake),
             args: TextEdit::new(s.args),
             overrides: TextEdit::new(s.overrides),
@@ -549,15 +555,22 @@ impl App {
         self.save();
     }
 
-    /// Saves what's typed into the page's fields.
+    /// Saves what's typed into the page's fields. A new name moves the game's card to its
+    /// place in the library's order.
     pub fn save_form(&mut self) {
         let form = [&self.form.fake_id, &self.form.args, &self.form.overrides, &self.form.env, &self.form.prefix]
             .map(|e| e.text.trim().to_owned());
         let [fake, args, overrides, env, prefix] = form;
+        let name = self.form.name.text.trim().to_owned();
+        let renamed = self.current().is_some_and(|g| self.cfg.settings(&g.root).name != name);
         self.edit(|s, _| {
+            s.name = name;
             s.fake_app_id = fake.parse().unwrap_or(0);
             (s.args, s.overrides, s.env, s.prefix) = (args, overrides, env, prefix);
         });
+        if renamed {
+            self.sort_games();
+        }
     }
 
     pub fn choose_proton(&mut self, name: &str) {

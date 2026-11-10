@@ -800,6 +800,38 @@ fn editing_saves_settings() {
     assert!(!Config::load(&ui.paths()).games.contains_key(&root), "clearing the only override drops the entry");
 }
 
+/// The launch options' Name field renames the game: its page, its card and its place in the
+/// library follow. Its placeholder is the detected name, and clearing it goes back to that.
+#[test]
+fn renaming_a_game_moves_its_card() {
+    let mut ui = Ui::new(&[("Alpha", 0), ("Bravo", 0), ("Charlie", 0)]);
+    let root = ui.game("Alpha");
+    let open = root.clone();
+    ui.rt.update(move |s, _| {
+        s.open_page(&open);
+        s.options_open = true;
+    });
+    ui.settle();
+    // The field starts empty, with the detected name as its placeholder.
+    let g = ui.rt.state.game(&root).unwrap().clone();
+    assert_eq!(ui.rt.state.detected_name(&g), "Alpha");
+    assert!(ui.find("game-name").is_some() && ui.rt.state.form.name.text.is_empty());
+
+    ui.click("game-name");
+    ui.type_text("Zulu");
+    ui.settle();
+    assert_eq!(ui.text("title"), "Zulu");
+    assert_eq!(Config::load(&ui.paths()).settings(&root).name, "Zulu");
+    assert_eq!(ui.card_names(), ["Bravo", "Charlie", "Zulu"], "the card moves to its new place");
+
+    ui.key(Key::Command('a'));
+    ui.key(Key::Backspace);
+    ui.settle();
+    assert_eq!(ui.text("title"), "Alpha");
+    assert_eq!(ui.card_names(), ["Alpha", "Bravo", "Charlie"]);
+    assert!(!Config::load(&ui.paths()).games.contains_key(&root), "no rename left saved");
+}
+
 #[test]
 fn choosing_the_default_proton_saves_nothing() {
     let mut ui = Ui::new(&[("Pong", 0)]);

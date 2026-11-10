@@ -832,7 +832,7 @@ fn options_toggle(t: &Strings, open: bool) -> El {
         .child(text(t.launch_options).font(SUBHEADING).color(TEXT))
 }
 
-/// The game's settings: Proton, which .exe, and what it starts with.
+/// The game's settings: its name, Proton, which .exe, and what it starts with.
 fn launch_options(s: &App, k: &Kit, g: &Game, spec: Option<&LaunchSpec>, width: f32, layer: &mut Vec<El>) -> El {
     let t = s.t();
     let settings = s.cfg.settings(&g.root);
@@ -870,6 +870,7 @@ fn launch_options(s: &App, k: &Kit, g: &Game, spec: Option<&LaunchSpec>, width: 
         .gap(14.0)
         .transition(Transition::offset(0.0, -6.0).combined(Transition::opacity()).springs(FADE))
         .child(text(t.defaults_hint).font(CAPTION).color(MUTED).mt(-10.0))
+        .child(input(k, "game-name", t.game_name, &s.form.name, &s.detected_name(g), |s| &mut s.form.name))
         .child(field("Proton", proton))
         .child(field(
             t.executable,

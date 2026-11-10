@@ -58,6 +58,10 @@ you; it's optional. Both run silently through Proton, the game first and the fix
 fails, what it left there is removed, so you can just install again; the game's prefix (and
 any saves in it) stays.
 
+Click a game to open its page: Play, its folder and log, and its launch options (Proton, the
+`.exe`, arguments and the like). The launch options' **Name** renames the game; clear it to go
+back to the detected name.
+
 Steam has to be running and logged in. If it isn't, Play starts it; press Play again once
 you're logged in.
 
