@@ -81,6 +81,9 @@ button at the end of the header picks another.
 Settings are in `~/.config/asterofix/config.json`, and each game's last log is in
 `~/.local/share/asterofix/logs/`.
 
+asterofix opens one window at a time: starting it again brings the open window forward. The
+command line works alongside it, and a game installed with `--install` shows up in the window.
+
 There's also a command line, for scripts:
 
 ```sh

@@ -211,7 +211,10 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     rune_kit::root(app, layer).on_window_focus(|s: &mut App, focused, tx: &mut Tx| {
         // No point animating behind other windows; the clock picks up where it stopped.
         s.background.set_paused(!focused);
-        tx.live_only();
+        // Back from a terminal where `--install` ran: its game shows up.
+        if !(focused && s.reload_config()) {
+            tx.live_only();
+        }
     })
 }
 

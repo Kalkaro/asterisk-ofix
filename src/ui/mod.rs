@@ -58,6 +58,9 @@ pub struct App {
     pub protons: Vec<Proton>,
     pub default_proton: String,
     pub cfg: Config,
+    /// config.json as this window last read or wrote it: saving merges in what `--install`
+    /// changed since (`Config::save`).
+    saved_cfg: Config,
     pub art: ArtStore,
     /// Rune images of each app's cover and hero, made as artwork arrives.
     pub images: HashMap<u32, Images>,
@@ -207,6 +210,7 @@ impl App {
             log,
             host: Host::default(),
             last_launched: None,
+            saved_cfg: cfg.clone(),
             cfg,
             art: ArtStore::new(&paths, None, endpoints),
             images: HashMap::new(),
@@ -752,8 +756,35 @@ impl App {
     }
 
     fn save(&mut self) {
-        if let Err(e) = self.cfg.save(&self.paths) {
-            self.set_status(fill(self.t().cant_save, &[&e]));
+        let folders = (self.cfg.libraries.clone(), self.cfg.manual_exes.clone());
+        match self.cfg.save(&mut self.saved_cfg, &self.paths) {
+            Ok(warning) => {
+                if let Some(warning) = warning {
+                    self.set_status(warning);
+                }
+                self.took_in(folders);
+            }
+            Err(e) => self.set_status(fill(self.t().cant_save, &[&e])),
+        }
+    }
+
+    /// Takes in what `--install` saved to config.json while the window was open (it adds the
+    /// library it installed to); true when anything changed. Runs as the window gets focus.
+    pub fn reload_config(&mut self) -> bool {
+        let folders = (self.cfg.libraries.clone(), self.cfg.manual_exes.clone());
+        if !self.cfg.reload(&mut self.saved_cfg, &self.paths) {
+            return false;
+        }
+        self.log.line("config.json changed outside the window; took the changes in");
+        self.took_in(folders);
+        self.sort_games();
+        true
+    }
+
+    /// Rescans if config.json brought folders other than `before` (libraries, added .exes).
+    fn took_in(&mut self, before: (Vec<PathBuf>, Vec<PathBuf>)) {
+        if (&self.cfg.libraries, &self.cfg.manual_exes) != (&before.0, &before.1) {
+            self.rescan();
         }
     }
 
@@ -1359,7 +1390,29 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
 }
 
 pub fn run() {
-    rune::run(AppSpec::<App> {
+    // One window per user; headless renders (`--snap`, which the preview script and CI run
+    // several of at once) neither take the lock nor wait for it.
+    let instance = if rune::tooling::is_headless() {
+        None
+    } else {
+        let paths = Paths::from_env();
+        match crate::instance::claim(&paths) {
+            Ok(crate::instance::Claim::First(instance)) => Some(instance),
+            Ok(crate::instance::Claim::Taken) => {
+                let token = crate::instance::activation_token(|k| std::env::var(k).ok());
+                match crate::instance::notify(&paths, &token) {
+                    Ok(()) => eprintln!("asterofix is already open; showing its window"),
+                    Err(e) => eprintln!("asterofix is already open (couldn't reach its window: {e})"),
+                }
+                return;
+            }
+            Err(e) => {
+                eprintln!("asterofix: couldn't check for another window ({e}); opening anyway");
+                None
+            }
+        }
+    };
+    let app = rune::App::new(AppSpec::<App> {
         min_size: Some(MIN_WINDOW),
         fonts: theme::FONTS,
         families: theme::FAMILIES,
@@ -1383,4 +1436,18 @@ pub fn run() {
             view::view,
         )
     });
+    if let Some(instance) = instance {
+        // A later launch: this window comes forward instead, with the launch's activation
+        // token where it had one. Without one Wayland only marks the window urgent, so it
+        // says why it's asking.
+        let handle = app.handle();
+        instance.serve(move |token| {
+            handle.activate(token);
+            handle.update(|s, _| {
+                s.log.line("Launched again; showing this window");
+                s.set_status(s.t().already_open);
+            });
+        });
+    }
+    app.run();
 }

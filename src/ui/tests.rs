@@ -1459,6 +1459,41 @@ fn losing_focus_pauses_the_backdrop() {
     assert!(!ui.rt.state.background.is_paused());
 }
 
+/// `asterofix --install` adds the library it installed into to config.json while the window
+/// is open. The window used to save its older copy over that on its next edit, and the game
+/// was gone from the library for good.
+#[test]
+fn an_install_from_the_cli_survives_the_windows_next_save() {
+    let mut ui = Ui::new(&[("Pong", 0)]);
+    let paths = ui.paths();
+    let library = paths.home.join(crate::install::INSTALL_DIR);
+    add_game(&library, "Hatch", 0);
+    // What `install_cli` does once the game is in.
+    assert_eq!(Config::add_saved_library(&paths, library.clone()).unwrap(), None);
+
+    ui.rt.update(|s, _| s.choose_language("Deutsch"));
+    ui.settle();
+    let saved = Config::load(&paths);
+    assert_eq!(saved.language, "de");
+    assert!(saved.libraries.contains(&library), "{:?}", saved.libraries);
+    assert_eq!(ui.card_names(), ["Hatch", "Pong"], "the window took the library in, and shows its game");
+}
+
+/// Coming back to the window from the terminal that ran `--install` shows the game at once.
+#[test]
+fn the_window_takes_in_an_install_when_it_gets_focus() {
+    let mut ui = Ui::new(&[("Pong", 0)]);
+    let paths = ui.paths();
+    let library = paths.home.join(crate::install::INSTALL_DIR);
+    add_game(&library, "Hatch", 0);
+    ui.rt.window_focus(false);
+    ui.rt.frame(1.0 / 60.0);
+    Config::add_saved_library(&paths, library).unwrap();
+    ui.rt.window_focus(true);
+    ui.settle();
+    assert_eq!(ui.card_names(), ["Hatch", "Pong"]);
+}
+
 #[test]
 fn a_hand_picked_exe_opens_its_page() {
     let mut ui = Ui::new(&[]);

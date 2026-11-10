@@ -156,8 +156,23 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
   lands. An app whose store call or image download failed is asked for again by the next
   scan; one the store has no image for isn't. Art already loaded is only ever added to.
   `art::fake` can fail images, leave apps imageless, slow images down and count them.
-- `src/scan.rs`, `src/steam.rs`, `src/launch.rs`, `src/vdf.rs`, `src/config.rs`,
-  `src/paths.rs`: game detection, Proton/Steam discovery, launching, config and paths.
+- `src/instance.rs`: one window per user. The window holds an flock on `window.lock` in the
+  runtime dir (`Paths::runtime_dir`, `$XDG_RUNTIME_DIR/asterofix`) and listens on `window.sock`
+  beside it. A later launch finds the lock taken, sends its `XDG_ACTIVATION_TOKEN` down the
+  socket, prints a line and exits 0; the window comes forward with that token
+  (`AppHandle::activate`) and shows a toast. The kernel drops the lock when the process dies,
+  and Rust opens it close-on-exec, so games launched from the window don't hold it
+  (`games_never_inherit_the_lock`). Headless runs and the CLI never take it (`ui::run`).
+- `src/config.rs`: config.json. The window and `--install` can run at once, each with its own
+  copy, so `Config::save` never writes a copy over the file: under `config.json.lock` it reads
+  the file again and merges three ways from `base`, the copy last read or written (the
+  window's `saved_cfg`), on the JSON, so new fields merge too: objects key by key, lists as
+  sets, and the edit being saved wins a clash (`a_save_keeps_what_another_process_saved`,
+  `an_install_from_the_cli_survives_the_windows_next_save`). The window also takes in outside
+  changes when it gets focus (`App::reload_config`). Change `cfg` and call `App::save`; never
+  write config.json any other way.
+- `src/scan.rs`, `src/steam.rs`, `src/launch.rs`, `src/vdf.rs`,
+  `src/paths.rs`: game detection, Proton/Steam discovery, launching and paths.
 - `src/cli.rs`: the command line (`cli::parse`, pure). Unknown flags are errors (exit 2), so
   Rune's own flags (`--snap`, `--scene`, ...) are listed there, copied from Rune's
   `tooling/args.rs`; update the list when bumping Rune.

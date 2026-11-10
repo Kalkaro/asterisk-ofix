@@ -14,6 +14,7 @@ pub struct Paths {
     config_base: PathBuf,
     data_base: PathBuf,
     cache_base: PathBuf,
+    runtime_base: PathBuf,
 }
 
 impl Paths {
@@ -28,6 +29,9 @@ impl Paths {
             config_base: xdg("XDG_CONFIG_HOME", ".config"),
             data_base: xdg("XDG_DATA_HOME", ".local/share"),
             cache_base: xdg("XDG_CACHE_HOME", ".cache"),
+            // The user's tmpfs, private to them, where sockets and locks belong; the cache
+            // dir where there is none.
+            runtime_base: xdg("XDG_RUNTIME_DIR", ".cache"),
             home,
         }
     }
@@ -40,6 +44,7 @@ impl Paths {
             config_base: home.join(".config"),
             data_base: home.join(".local/share"),
             cache_base: home.join(".cache"),
+            runtime_base: home.join("run"),
         }
     }
 
@@ -51,5 +56,9 @@ impl Paths {
     }
     pub fn cache_dir(&self) -> PathBuf {
         self.cache_base.join(APP)
+    }
+    /// The window's lock and socket (`instance`).
+    pub fn runtime_dir(&self) -> PathBuf {
+        self.runtime_base.join(APP)
     }
 }

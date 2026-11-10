@@ -7,6 +7,7 @@ mod background;
 mod cli;
 mod config;
 mod install;
+mod instance;
 #[cfg(test)]
 mod integration_tests;
 mod launch;
@@ -101,13 +102,11 @@ fn install_cli(files: &[PathBuf]) -> Result<(), String> {
             return Err(e);
         }
     }
-    let (mut cfg, warning) = config::Config::open(&paths);
+    let library = plan.dest.parent().unwrap_or(&plan.dest).to_path_buf();
+    // Merged into config.json as it is now, so an open window's changes stay.
+    let warning = config::Config::add_saved_library(&paths, library).map_err(|e| format!("saving config: {e}"))?;
     if let Some(warning) = warning {
         eprintln!("warning: {warning}");
-    }
-    let library = plan.dest.parent().unwrap_or(&plan.dest).to_path_buf();
-    if cfg.add_library(library) {
-        cfg.save(&paths).map_err(|e| format!("saving config: {e}"))?;
     }
     println!("installed {} in {}", plan.name, plan.dest.display());
     Ok(())
