@@ -40,6 +40,9 @@ pub type Launcher = Box<dyn Fn(&LaunchSpec, OnExit) -> Result<PathBuf, String>>;
 /// Stops the game in a folder, returning how many processes it found. Swapped out in tests.
 pub type Stopper = Box<dyn Fn(&Path) -> usize>;
 
+/// Deletes an uninstalled game's folder, on a thread of its own. Swapped out in tests.
+pub type Deleter = Arc<dyn Fn(&Path) -> std::io::Result<()> + Send + Sync>;
+
 pub struct App {
     pub paths: Paths,
     /// asterofix's own log, for bug reports.
@@ -95,6 +98,13 @@ pub struct App {
     pub measure_every: Duration,
     /// The Install popup, while it's open.
     pub install_form: Option<InstallForm>,
+    /// The games found in library folders by the last scan, rather than added by hand. Only
+    /// these can be uninstalled.
+    pub from_library: HashSet<PathBuf>,
+    /// The game the Uninstall popup asks about, while it's open.
+    pub uninstall_confirm: Option<PathBuf>,
+    /// Games whose folders are being deleted.
+    pub uninstalling: HashSet<PathBuf>,
     pub form: Form,
     /// The open dropdown on the page.
     pub open_select: Option<&'static str>,
@@ -112,6 +122,7 @@ pub struct App {
 
     pub launcher: Option<Launcher>,
     pub stopper: Stopper,
+    pub deleter: Deleter,
     pub steam_running: fn() -> bool,
 }
 
@@ -119,6 +130,16 @@ pub struct App {
 pub struct Images {
     pub cover: Option<Image>,
     pub hero: Option<Image>,
+}
+
+/// Where a game in the library comes from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Origin {
+    /// Found in a library folder: Uninstall deletes its folder.
+    Library,
+    /// Its .exe was added by hand: Remove from library forgets it.
+    Added,
+    Unknown,
 }
 
 /// The page's text fields.
@@ -159,6 +180,8 @@ struct Inbox {
     removed: Vec<Result<bool, String>>,
     /// What the install has written so far, by the measuring thread's id.
     sizes: Vec<(u64, u64)>,
+    /// Uninstalled games' folders, their names, and how deleting them went.
+    uninstalls: Vec<(PathBuf, String, Result<(), String>)>,
 }
 
 impl App {
@@ -208,6 +231,9 @@ impl App {
             measure_id: 0,
             measure_every: Duration::from_secs(1),
             install_form: None,
+            from_library: HashSet::new(),
+            uninstall_confirm: None,
+            uninstalling: HashSet::new(),
             form: Form::default(),
             open_select: None,
             reload_turns: 0,
@@ -218,6 +244,7 @@ impl App {
             background: Background::new(),
             launcher,
             stopper: Box::new(stop_game),
+            deleter: Arc::new(crate::uninstall::delete),
             steam_running: steam::steam_running,
             paths,
             steam,
@@ -260,13 +287,20 @@ impl App {
     /// Picks up what other threads finished; true when anything visible changed.
     pub fn poll(&mut self, now: f64, _tx: &mut Tx) -> bool {
         self.now = now;
-        let Inbox { art, exits, installs, removed, sizes } = std::mem::take(&mut *lock(&self.inbox));
-        let mut changed = !art.is_empty() || !exits.is_empty() || !installs.is_empty() || !removed.is_empty();
+        let Inbox { art, exits, installs, removed, sizes, uninstalls } = std::mem::take(&mut *lock(&self.inbox));
+        let mut changed = !art.is_empty()
+            || !exits.is_empty()
+            || !installs.is_empty()
+            || !removed.is_empty()
+            || !uninstalls.is_empty();
         for (id, size) in sizes {
             if self.measuring.is_some() && id == self.measure_id {
                 changed |= self.install_size != Some(size);
                 self.install_size = Some(size);
             }
+        }
+        for (root, name, result) in uninstalls {
+            self.uninstall_done(&root, &name, result);
         }
         for result in installs {
             self.install_step_done(result);
@@ -319,8 +353,9 @@ impl App {
         let plain = !(ev.mods.cmd || ev.mods.ctrl || ev.mods.alt || ev.mods.logo);
         match &ev.key {
             Key::Escape if self.install_form.is_some() => self.close_install(),
-            // Nothing behind the popup takes keys.
-            _ if self.install_form.is_some() => return false,
+            Key::Escape if self.uninstall_confirm.is_some() => self.uninstall_confirm = None,
+            // Nothing behind a popup takes keys.
+            _ if self.install_form.is_some() || self.uninstall_confirm.is_some() => return false,
             Key::Escape if self.search_open => self.close_search(),
             Key::Escape if self.open_select.is_some() => self.open_select = None,
             Key::Escape if self.selected.is_some() => self.close_page(),
@@ -396,6 +431,7 @@ impl App {
 
     pub fn rescan(&mut self) {
         let mut games = scan_libraries(&self.cfg.libraries);
+        self.from_library = games.iter().map(|g| g.root.clone()).collect();
         for exe in &self.cfg.manual_exes {
             if exe.is_file() {
                 let g = game_from_exe(exe);
@@ -610,6 +646,9 @@ impl App {
         let t = self.t();
         if self.running.contains(root) {
             return self.set_status(fill(t.already_running, &[&self.display_name(&g)]));
+        }
+        if self.uninstalling.contains(root) {
+            return self.set_status(fill(t.uninstalling, &[&self.display_name(&g)]));
         }
         let Some(launcher) = &self.launcher else {
             return self.set_status(t.no_steam);
@@ -986,6 +1025,127 @@ impl App {
         }
     }
 
+    /// Where the open game comes from, which says how it leaves the library: a game found in
+    /// a library folder is uninstalled, one added by hand is only removed.
+    pub fn origin(&self, g: &Game) -> Origin {
+        if self.from_library.contains(&g.root) {
+            Origin::Library
+        } else if self.cfg.manual_exes.iter().any(|e| e.parent() == Some(g.root.as_path())) {
+            Origin::Added
+        } else {
+            Origin::Unknown
+        }
+    }
+
+    /// The page's Remove from library, for a game added by hand: forgets its .exe. No files
+    /// are touched, and its settings stay, so adding it again brings them back.
+    pub fn remove_from_library(&mut self) {
+        let Some(g) = self.current().cloned() else { return };
+        let (t, name) = (self.t(), self.display_name(&g));
+        if self.running.contains(&g.root) {
+            return self.set_status(fill(t.stop_first, &[&name]));
+        }
+        // Every .exe picked from its folder, or the next one would bring the card back.
+        self.cfg.manual_exes.retain(|e| e.parent() != Some(g.root.as_path()));
+        self.save();
+        self.log.line(format!("Removed {name} ({}) from the library", g.root.display()));
+        self.close_page();
+        self.rescan();
+        self.set_status(fill(t.removed, &[&name]));
+    }
+
+    /// Why the game in `root` can't be uninstalled now, if it can't.
+    fn uninstall_refused(&self, root: &Path) -> Option<String> {
+        let t = self.t();
+        let g = self.game(root)?;
+        let name = self.display_name(g);
+        if self.running.contains(root) {
+            return Some(fill(t.stop_first, &[&name]));
+        }
+        if self.installing.as_ref().is_some_and(|(plan, _)| plan.dest.starts_with(root) || root.starts_with(&plan.dest))
+        {
+            return Some(fill(t.being_installed, &[&name]));
+        }
+        if self.uninstalling.contains(root) {
+            return Some(fill(t.uninstalling, &[&name]));
+        }
+        if self.origin(g) != Origin::Library {
+            return Some(fill(t.uninstall_failed, &[&name, &"it was added by hand, not found in a library folder"]));
+        }
+        let check = crate::uninstall::check(&self.paths, &self.cfg.libraries, root, &self.prefix_of(root));
+        check.err().map(|e| fill(t.uninstall_failed, &[&name, &e]))
+    }
+
+    /// The Wine prefix the game in `root` plays in: the one picked for it, or its own.
+    fn prefix_of(&self, root: &Path) -> PathBuf {
+        match self.cfg.settings(root).prefix.as_str() {
+            "" => crate::launch::default_prefix(&self.paths, root),
+            p => PathBuf::from(p),
+        }
+    }
+
+    /// The page's Uninstall: asks first, in a popup naming the folder.
+    pub fn ask_uninstall(&mut self) {
+        let Some(root) = self.selected.clone() else { return };
+        match self.uninstall_refused(&root) {
+            Some(why) => self.set_status(why),
+            None => {
+                self.open_select = None;
+                self.uninstall_confirm = Some(root);
+            }
+        }
+    }
+
+    /// The popup's Uninstall: deletes the game's folder on a thread, checking again first
+    /// that it's still a game directly in a library. The page closes once it's gone.
+    pub fn confirm_uninstall(&mut self) {
+        let Some(root) = self.uninstall_confirm.take() else { return };
+        if let Some(why) = self.uninstall_refused(&root) {
+            return self.set_status(why);
+        }
+        let Some(g) = self.game(&root) else { return };
+        let name = self.display_name(g);
+        let (paths, libraries, prefix) = (self.paths.clone(), self.cfg.libraries.clone(), self.prefix_of(&root));
+        let (inbox, wake, delete) = (self.inbox.clone(), self.wake(), self.deleter.clone());
+        self.log.line(format!("Uninstalling {name}: deleting {}", root.display()));
+        self.uninstalling.insert(root.clone());
+        self.set_progress(fill(self.t().uninstalling, &[&name]));
+        let at = root.clone();
+        std::thread::spawn(move || {
+            let result = crate::uninstall::check(&paths, &libraries, &at, &prefix)
+                .and_then(|()| delete(&at).map_err(|e| e.to_string()));
+            lock(&inbox).uninstalls.push((at, name, result));
+            wake();
+        });
+    }
+
+    /// A game's folder is deleted, or deleting it failed partway: the library is scanned again
+    /// either way.
+    fn uninstall_done(&mut self, root: &Path, name: &str, result: Result<(), String>) {
+        let t = self.t();
+        self.uninstalling.remove(root);
+        match &result {
+            Ok(()) => self.log.line(format!("Uninstalled {name}: {} is deleted", root.display())),
+            Err(e) => self.log.line(format!("Uninstalling {name} failed: {e}")),
+        }
+        if result.is_ok() {
+            // .exe files picked from inside it are gone with it.
+            let before = self.cfg.manual_exes.len();
+            self.cfg.manual_exes.retain(|e| !e.starts_with(root));
+            if self.cfg.manual_exes.len() != before {
+                self.save();
+            }
+            if self.selected.as_deref() == Some(root) {
+                self.close_page();
+            }
+        }
+        self.rescan();
+        match result {
+            Ok(()) => self.set_status(fill(t.uninstalled, &[&name])),
+            Err(e) => self.set_status(fill(t.uninstall_failed, &[&name, &e])),
+        }
+    }
+
     pub fn browse_exe(&mut self, tx: &mut Tx) {
         let dir = self.current().map(|g| g.root.clone());
         pick_exe(tx, self.t(), self.t().choose_exe_title, dir, |s, exe| s.use_exe(&exe));
@@ -1018,6 +1178,11 @@ impl App {
     /// sits above the install's progress, which stays.
     pub fn set_status(&mut self, text: impl Into<String>) {
         self.show_toast(text.into(), self.now + TOAST_SECS);
+    }
+
+    /// Shows a message that stays up until the next one replaces it.
+    pub fn set_progress(&mut self, text: impl Into<String>) {
+        self.show_toast(text.into(), f64::INFINITY);
     }
 
     fn show_toast(&mut self, text: String, until: f64) {
@@ -1066,7 +1231,8 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// Toasts and a page's opening moment schedule their own end; `poll` runs then.
 fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let ends = [s.toast.as_ref().map_or(0.0, |t| t.until), s.opening_until];
-    if let Some(end) = ends.into_iter().filter(|&end| end > now).reduce(f64::min) {
+    // A progress toast never ends by itself.
+    if let Some(end) = ends.into_iter().filter(|&end| end > now && end.is_finite()).reduce(f64::min) {
         tx.wake_after(Duration::from_secs_f64(end - now));
     }
     s.poll(now, tx)

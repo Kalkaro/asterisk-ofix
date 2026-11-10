@@ -3,7 +3,7 @@
 
 use super::i18n::{Lang, Strings, fill};
 use super::theme::{self, *};
-use super::{App, Images};
+use super::{App, Images, Origin};
 use crate::art::has_art;
 use crate::background::chunked;
 use crate::launch::LaunchSpec;
@@ -30,8 +30,8 @@ const PAGE_WIDE: f32 = 820.0;
 const PAGE_GAP: f32 = 32.0;
 /// The page's text column stops growing here, so lines stay readable. It's wide enough for
 /// Play, Folder, Log and Copy command with their labels in every language (French's are the
-/// longest, at 577 points).
-const INFO_MAX: f32 = 580.0;
+/// longest, at 577 points), and Uninstall's (or Remove from library's) icon after them.
+const INFO_MAX: f32 = 612.0;
 /// Steam heroes are 1920x620.
 const HERO_ASPECT: f32 = 1920.0 / 620.0;
 /// Softens the starfield (Gaussian sigma, points). The UI above stays sharp.
@@ -136,6 +136,13 @@ pub const SCENES: &[Scene] = &[
         s.search = rune::TextEdit::new("game");
         s.search_open = true;
     }),
+    // The Uninstall popup over the first game's page.
+    ("uninstall", |s| {
+        if let Some(root) = s.games.first().map(|g| g.root.clone()) {
+            s.open_page(&root);
+            s.uninstall_confirm = Some(root);
+        }
+    }),
     // The second game is running, with its page open.
     ("running", |s| {
         if let Some(root) = s.games.get(1).map(|g| g.root.clone()) {
@@ -168,6 +175,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     let floor = if s.search_open { SEARCH_BOTTOM + SEARCH_H + 12.0 } else { 24.0 };
     let progress = install_progress(s, &k, size[0], floor);
     let toast_bottom = if progress.is_some() { floor + PROGRESS_H + 10.0 } else { floor };
+    uninstall_dialog(s, &k, &mut layer);
     let app = el()
         .key("app")
         .w_full()
@@ -713,13 +721,27 @@ fn game_page(s: &App, k: &Kit, g: &Game, width: f32, layer: &mut Vec<El>) -> El 
             .control_size(ControlSize::ExtraLarge)
             .on_press(move |s: &mut App| s.play(&root))
     };
+    // How the game leaves the library: a game found in a library folder is uninstalled, one
+    // added by hand only forgotten.
+    let leave = match s.origin(g) {
+        Origin::Library => Some(Leave { key: "uninstall", label: t.uninstall, glyph: &TRASH, f: App::ask_uninstall }),
+        Origin::Added => Some(Leave {
+            key: "remove-game",
+            label: t.remove_from_library,
+            glyph: &REMOVE,
+            f: App::remove_from_library,
+        }),
+        Origin::Unknown => None,
+    };
+    let labels: Vec<&str> =
+        [t.folder, t.log, t.copy_command].into_iter().chain(leave.as_ref().map(|l| l.label)).collect();
     let actions = row()
         .key("actions")
         .w_full()
         .gap(8.0)
         .center_y()
         .child(el().w(PLAY_W).mr(8.0).child(play.build(k).key("page-play").w_full()))
-        .children(page_actions(k, t, page_labels(t, info_w)));
+        .children(page_actions(k, t, page_labels(&labels, info_w), leave));
 
     let info = col()
         .key("info")
@@ -767,14 +789,13 @@ fn game_page(s: &App, k: &Kit, g: &Game, width: f32, layer: &mut Vec<El>) -> El 
         )
 }
 
-/// How many of the page's Folder, Log and Copy command keep their labels beside Play in a
-/// column `width` wide. Some languages' labels are much longer than English's; as the column
-/// narrows Copy command shows just its icon first, then Log, then Folder, so the row never
-/// wraps (`page_actions_stay_on_one_line`).
-fn page_labels(t: &Strings, width: f32) -> usize {
-    let labels = [t.folder, t.log, t.copy_command];
-    // Play and its margin, and the gaps before the three.
-    let mut need = PLAY_W + 8.0 + 3.0 * 8.0;
+/// How many of the page's Folder, Log, Copy command and Uninstall (`labels`) keep their labels
+/// beside Play in a column `width` wide. Some languages' labels are much longer than English's;
+/// as the column narrows Uninstall shows just its icon first, then Copy command, then Log, then
+/// Folder, so the row never wraps (`game_page_is_anchored_left_and_fits`).
+fn page_labels(labels: &[&str], width: f32) -> usize {
+    // Play and its margin, and the gaps before the others.
+    let mut need = PLAY_W + 8.0 + labels.len() as f32 * 8.0;
     // A point each for rounding.
     need += labels.iter().map(|l| rune::text::measure(l, &[], BODY_STRONG, None).0 + LABEL_PAD + 1.0).sum::<f32>();
     for (i, label) in labels.iter().enumerate().rev() {
@@ -789,8 +810,17 @@ fn page_labels(t: &Strings, width: f32) -> usize {
 /// The page's Play button.
 const PLAY_W: f32 = 160.0;
 
-/// Folder, Log and Copy command; just their icons where their labels don't fit (`page_labels`).
-fn page_actions(k: &Kit, t: &Strings, labelled: usize) -> [El; 3] {
+/// The page's way for a game to leave the library: Uninstall or Remove from library.
+struct Leave {
+    key: &'static str,
+    label: &'static str,
+    glyph: &'static rune::Icon,
+    f: fn(&mut App),
+}
+
+/// Folder, Log, Copy command and `leave`; just their icons where their labels don't fit
+/// (`page_labels`).
+fn page_actions(k: &Kit, t: &Strings, labelled: usize, leave: Option<Leave>) -> Vec<El> {
     let mut i = 0;
     let mut action = |key: &str, label: &'static str, glyph: &'static rune::Icon, f: fn(&mut App, &mut Tx)| {
         i += 1;
@@ -810,6 +840,17 @@ fn page_actions(k: &Kit, t: &Strings, labelled: usize) -> [El; 3] {
         action("log", t.log, &DOCUMENT, |s, _| s.open_log()),
         action("copy-command", t.copy_command, k.glyph.copy, App::copy_command),
     ]
+    .into_iter()
+    .chain(leave.map(|l| {
+        let f = l.f;
+        if labelled > 3 {
+            Button::new(l.label).icon(l.glyph).variant(ButtonVariant::Ghost).on_press(f).build(k)
+        } else {
+            IconButton::new(l.glyph).label(l.label).help(l.label).variant(IconButtonVariant::Ghost).on_press(f).build(k)
+        }
+        .key(l.key)
+    }))
+    .collect()
 }
 
 /// "Launch options", with a caret that turns as they open.
@@ -1184,6 +1225,68 @@ fn install_dialog(s: &App, k: &Kit, layer: &mut Vec<El>) {
         .build(k, layer);
 }
 
+/// The Uninstall popup: which folder goes, that the saves stay, and Uninstall.
+fn uninstall_dialog(s: &App, k: &Kit, layer: &mut Vec<El>) {
+    let Some(g) = s.uninstall_confirm.as_deref().and_then(|root| s.game(root)) else { return };
+    let t = s.t();
+    let folder = match g.root.strip_prefix(&s.paths.home) {
+        Ok(rel) => format!("~/{}", rel.to_string_lossy()),
+        Err(_) => g.root.to_string_lossy().into_owned(),
+    };
+    let body = col()
+        .key("uninstall-form")
+        .w_full()
+        .px(16.0)
+        .pb(16.0)
+        .gap(14.0)
+        .child(
+            row()
+                .w_full()
+                .gap(10.0)
+                .px(10.0)
+                .py(8.0)
+                .radius(6.0)
+                .fill(RAISED)
+                .border(1.0, BORDER)
+                .child(icon(&FOLDER, 16.0).color(MUTED).mt(2.0))
+                // The whole path, broken anywhere: it's what will be deleted.
+                .child(
+                    text(folder).key("uninstall-folder").font(BODY).color(TEXT).wrap_anywhere().grow(1.0).min_w(0.0),
+                ),
+        )
+        .child(text(t.saves_kept).key("uninstall-saves").font(CAPTION).color(MUTED).wrap())
+        .child(
+            row()
+                .w_full()
+                .gap(8.0)
+                .mt(4.0)
+                .justify_end()
+                .child(
+                    Button::new(t.cancel)
+                        .variant(ButtonVariant::Ghost)
+                        .on_press(|s: &mut App| s.uninstall_confirm = None)
+                        .build(k)
+                        .key("uninstall-cancel"),
+                )
+                .child(
+                    Button::new(t.uninstall)
+                        .icon(&TRASH)
+                        .variant(ButtonVariant::Contrast)
+                        .on_press(App::confirm_uninstall)
+                        .build(k)
+                        .key("uninstall-confirm"),
+                ),
+        );
+    Dialog::new("uninstall", fill(t.uninstall_title, &[&s.display_name(g)]))
+        .open(true)
+        .description(t.uninstall_description)
+        .width(460.0)
+        .fit()
+        .on_close(|s: &mut App| s.uninstall_confirm = None)
+        .child(body)
+        .build(k, layer);
+}
+
 /// The install's progress toast, and how tall it is.
 const PROGRESS_W: f32 = 440.0;
 pub const PROGRESS_H: f32 = 60.0;
@@ -1197,7 +1300,7 @@ fn install_progress(s: &App, k: &Kit, window_w: f32, bottom: f32) -> Option<El> 
     let t = s.t();
     let title = match () {
         _ if s.install_cancelled => t.cancelling_install,
-        _ if plan.steps[*step].is_fix => t.installing_fix,
+        _ if plan.steps.get(*step).is_some_and(|s| s.is_fix) => t.installing_fix,
         _ => t.installing,
     };
     let title = fill(title, &[&plan.name]);
@@ -1213,12 +1316,11 @@ fn install_progress(s: &App, k: &Kit, window_w: f32, bottom: f32) -> Option<El> 
         .role("progressbar")
         .label(title.clone())
         .child(
-            el().key("install-bar-fill")
-                .w_frac(0.25)
-                .h_full()
-                .radius(2.0)
-                .fill(TEXT)
-                .looping(rune::LoopSpec::slide(1.4, [-1.0, 0.0], [4.0, 0.0])),
+            el().key("install-bar-fill").w_frac(0.25).h_full().radius(2.0).fill(TEXT).looping(rune::LoopSpec::slide(
+                1.4,
+                [-1.0, 0.0],
+                [4.0, 0.0],
+            )),
         );
     let lines = col()
         .grow(1.0)

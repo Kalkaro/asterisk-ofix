@@ -642,8 +642,8 @@ fn typing_on_a_page_searches_the_library() {
 
 /// The page is placed from the left edge: its parts don't move sideways as the window's width
 /// changes (but for the cover's one step down in narrow windows), and nothing leaves it. In
-/// every language, Folder, Log and Copy command stay on Play's line, giving up their labels
-/// where they don't fit: in French, Russian and Ukrainian Copy command wrapped under Play.
+/// every language, Folder, Log, Copy command and Uninstall stay on Play's line, giving up their
+/// labels where they don't fit: in French, Russian and Ukrainian Copy command wrapped under Play.
 #[test]
 fn game_page_is_anchored_left_and_fits() {
     let mut ui = Ui::new(&[("A Game With A Really Long Name That Goes On", 0)]);
@@ -674,15 +674,15 @@ fn game_page_is_anchored_left_and_fits() {
                 }
                 let [_, py, _, ph] = ui.rect("page-play");
                 let [ix, _, iw, _] = ui.rect("info");
-                for k in ["folder", "log", "copy-command"] {
+                for k in ["folder", "log", "copy-command", "uninstall"] {
                     let [x, y, bw, h] = ui.rect(k);
                     assert_eq!(py + ph / 2.0, y + h / 2.0, "{lang:?} at width {w}: {k} wrapped onto a second line");
                     assert!(x + bw <= ix + iw + 0.5, "{lang:?} at width {w}: {k} ends at {}, past the column", x + bw);
                 }
-                // Copy command gives its label up first, then Log, then Folder.
-                let shown = ["folder", "log", "copy-command"].map(|k| labelled(&ui, k));
+                // Uninstall gives its label up first, then Copy command, then Log, then Folder.
+                let shown = ["folder", "log", "copy-command", "uninstall"].map(|k| labelled(&ui, k));
                 assert!(shown.windows(2).all(|p| p[0] || !p[1]), "{lang:?} at width {w}: labels {shown:?}");
-                for k in ["title", "actions", "options", "prefix", "copy-command"] {
+                for k in ["title", "actions", "options", "prefix", "uninstall"] {
                     let [x, _, bw, _] = ui.rect(k);
                     assert!(x + bw <= w - GUTTER + 0.5, "{lang:?} at width {w}: {k} ends at {}", x + bw);
                 }
@@ -1281,6 +1281,172 @@ fn the_log_from_an_earlier_run_opens() {
     let log = ui.paths().data_dir().join("logs/Pong.log");
     crate::testutil::write(&log, "$ proton");
     assert_eq!(ui.rt.state.log_for(&g), Some(log));
+}
+
+/// Uninstall asks first, naming the folder, then deletes it: the page closes, the card goes,
+/// and a toast says so. The game's Wine prefix (its saves) stays, and so does whatever a link in
+/// its folder points to, and its settings, so reinstalling it brings them back.
+#[test]
+fn uninstall_deletes_the_games_folder_and_keeps_its_saves() {
+    let mut ui = Ui::new(&[("Pong", 0), ("Hatch", 0)]);
+    let root = ui.game("Pong");
+    let save = ui.paths().data_dir().join("prefixes/Pong/drive_c/save.dat");
+    crate::testutil::write(&save, "level 9");
+    let outside = ui.home.path().join("Documents/notes.txt");
+    crate::testutil::write(&outside, "mine");
+    std::os::unix::fs::symlink(outside.parent().unwrap(), root.join("docs")).unwrap();
+    let open = root.clone();
+    ui.rt.update(move |s, _| s.open_page(&open));
+    ui.rt.update(|s, _| s.edit(|g, _| g.args = "-windowed".into()));
+    ui.settle();
+    assert!(ui.find("remove-game").is_none(), "a game in a library is uninstalled, not removed");
+
+    ui.click("uninstall");
+    ui.settle();
+    assert!(ui.find("uninstall-dialog").is_some());
+    assert_eq!(ui.text("uninstall-folder"), "~/Games/Pong");
+    // Cancelled, nothing happens.
+    ui.click("uninstall-cancel");
+    ui.settle();
+    assert!(ui.find("uninstall-dialog").is_none() && root.is_dir());
+
+    ui.click("uninstall");
+    ui.settle();
+    ui.click("uninstall-confirm");
+    ui.wait_until("the deletion", |s| s.uninstalling.is_empty());
+    ui.settle();
+    assert!(!root.exists(), "the folder is gone");
+    assert_eq!(std::fs::read_to_string(&save).unwrap(), "level 9", "the saves stay");
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "mine", "a link's target stays");
+    assert!(ui.find("page").is_none() && ui.rt.state.selected.is_none(), "the page closes");
+    assert_eq!(ui.card_names(), ["Hatch"]);
+    assert_eq!(ui.toast(), "Uninstalled Pong");
+    assert_eq!(Config::load(&ui.paths()).settings(&root).args, "-windowed", "its settings are kept");
+}
+
+/// Deleting a big game takes a while: it happens on another thread, and the window keeps
+/// drawing and taking input meanwhile. Play waits for it.
+#[test]
+fn uninstall_runs_off_the_ui_thread() {
+    let mut ui = Ui::new(&[("Pong", 0)]);
+    let fl = FakeLaunch::install(&mut ui);
+    let root = ui.game("Pong");
+    let (release, gate) = std::sync::mpsc::channel::<()>();
+    let gate = std::sync::Mutex::new(gate);
+    ui.rt.state.deleter = std::sync::Arc::new(move |dir: &Path| {
+        gate.lock().unwrap().recv().unwrap();
+        crate::uninstall::delete(dir)
+    });
+    let open = root.clone();
+    ui.rt.update(move |s, _| s.open_page(&open));
+    ui.settle();
+    ui.click("uninstall");
+    ui.settle();
+    ui.click("uninstall-confirm");
+    ui.settle();
+    assert_eq!(ui.toast(), "Uninstalling Pong\u{2026}");
+    assert!(root.is_dir() && ui.rt.state.uninstalling.contains(&root));
+    ui.click("page-play");
+    assert_eq!(fl.count(), 0, "a game being deleted doesn't start");
+    ui.click("uninstall");
+    assert!(ui.find("uninstall-dialog").is_none(), "nor is it uninstalled twice");
+
+    release.send(()).unwrap();
+    ui.wait_until("the deletion", |s| s.uninstalling.is_empty());
+    ui.settle();
+    assert!(!root.exists());
+    assert_eq!(ui.toast(), "Uninstalled Pong");
+}
+
+/// A running game, or one an installer is writing to, isn't uninstalled.
+#[test]
+fn uninstall_waits_for_the_game_and_its_installer() {
+    let mut ui = Ui::new(&[("Pong", 0)]);
+    let root = ui.game("Pong");
+    let open = root.clone();
+    ui.rt.update(move |s, _| {
+        s.open_page(&open);
+        s.running.insert(open.clone());
+    });
+    ui.settle();
+    ui.click("uninstall");
+    ui.settle();
+    assert!(ui.find("uninstall-dialog").is_none());
+    assert_eq!(ui.toast(), "Pong is running. Stop it first.");
+
+    let dest = root.clone();
+    ui.rt.update(move |s, _| {
+        s.running.clear();
+        let plan = crate::install::Plan { name: "Pong".into(), dest, steps: Vec::new(), fresh: true };
+        s.installing = Some((plan, 0));
+    });
+    ui.click("uninstall");
+    ui.settle();
+    assert!(ui.find("uninstall-dialog").is_none());
+    assert_eq!(ui.toast(), "Pong is being installed. Wait for it to finish.");
+
+    // Running by the time the popup's Uninstall is pressed.
+    let open = root.clone();
+    ui.rt.update(|s, _| s.installing = None);
+    ui.click("uninstall");
+    ui.settle();
+    ui.rt.update(move |s, _| {
+        s.running.insert(open);
+    });
+    ui.click("uninstall-confirm");
+    ui.settle();
+    assert!(root.is_dir() && ui.rt.state.uninstalling.is_empty());
+    assert_eq!(ui.toast(), "Pong is running. Stop it first.");
+}
+
+/// What the popup asked about is checked again when Uninstall is pressed: a folder that's no
+/// longer in a library, or has become one, isn't deleted.
+#[test]
+fn uninstall_checks_the_folder_again_before_deleting() {
+    for change in
+        [|s: &mut App| s.cfg.libraries.clear(), |s: &mut App| s.cfg.libraries.push(s.selected.clone().unwrap())]
+    {
+        let mut ui = Ui::new(&[("Pong", 0)]);
+        let root = ui.game("Pong");
+        let open = root.clone();
+        ui.rt.update(move |s, _| s.open_page(&open));
+        ui.settle();
+        ui.click("uninstall");
+        ui.settle();
+        ui.rt.update(move |s, _| change(s));
+        ui.click("uninstall-confirm");
+        ui.settle();
+        assert!(root.is_dir(), "{}", ui.toast());
+        assert!(ui.toast().starts_with("Could not uninstall Pong: "), "{}", ui.toast());
+    }
+}
+
+/// A game added by hand is removed from the library, never uninstalled: its folder is just
+/// where its .exe was, here ~/Downloads, or a folder in a library that isn't a game.
+#[test]
+fn a_game_added_by_hand_is_removed_not_uninstalled() {
+    for folder in ["Downloads/Tool", "Games/Tool"] {
+        let mut ui = Ui::new(&[("Pong", 0)]);
+        let exe = ui.home.path().join(folder).join("Tool.exe");
+        crate::testutil::write(&exe, "x");
+        let picked = exe.clone();
+        ui.rt.update(move |s, _| s.add_manual_exe(picked));
+        ui.rt.update(|s, _| s.edit(|g, _| g.args = "-safe".into()));
+        ui.settle();
+        assert!(ui.find("uninstall").is_none(), "{folder}: no Uninstall for a game added by hand");
+        ui.rt.update(|s, _| s.ask_uninstall());
+        assert!(ui.rt.state.uninstall_confirm.is_none(), "{folder}: not even when asked directly");
+
+        ui.click("remove-game");
+        ui.settle();
+        assert!(exe.is_file(), "{folder}: no files are touched");
+        assert_eq!(ui.card_names(), ["Pong"]);
+        assert!(ui.rt.state.selected.is_none());
+        assert_eq!(ui.toast(), "Removed Tool from the library");
+        let cfg = Config::load(&ui.paths());
+        assert!(cfg.manual_exes.is_empty());
+        assert_eq!(cfg.settings(exe.parent().unwrap()).args, "-safe", "its settings are kept for when it's back");
+    }
 }
 
 #[test]

@@ -48,7 +48,7 @@ nix develop -c scripts/preview.sh /some/dir
 
 This renders `library.png`, `library-narrow.png`, `hover.png`, `page.png`,
 `page-narrow.png`, `options.png`, `proton-menu.png`, `search.png`, `no-matches.png`, `toast.png`, `running.png`,
-`language-menu.png`, `install.png`, `install-narrow.png`, and in other languages `page-ru.png`, `library-ru-narrow.png`, `page-ja.png` and `page-fr.png` headlessly (Rune's
+`language-menu.png`, `install.png`, `install-narrow.png`, `uninstall.png`, `uninstall-narrow.png`, and in other languages `page-ru.png`, `library-ru-narrow.png`, `page-ja.png` and `page-fr.png` headlessly (Rune's
 `--snap`, with the scenes in `view::SCENES`) from a made-up demo library:
 `scripts/demo_home.py` builds a throwaway home with Pong and Game 1 to 4, black and white
 covers drawn like box art (a little scene each, no titles) already in the cache, and a fake Steam with a few Proton builds (Proton 9.0
@@ -122,13 +122,31 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
   `~/Games/asterofix/<name>` and the prefix the game will play in. The name comes from the
   installer's name or its folder's, minus versions, "by <repacker>" and fix words.
   `winebrowser.exe=d` stops installers opening their readme in a browser. Steps chain through
-  the inbox (`App::install_step_done`), so the launcher stays on the UI thread; the toast stays
-  up while one runs (`set_progress`). `~/Games/asterofix` becomes a library, and a library inside
+  the inbox (`App::install_step_done`), so the launcher stays on the UI thread. While one runs,
+  `install_progress` in view.rs stays at the bottom with what it has written so far
+  (`App::measure_install`, a thread polling `install::dir_size`), a sliding bar (the installer's
+  total isn't known) and Cancel, which stops the installer with the game `stopper`; other toasts
+  sit above it. `~/Games/asterofix` becomes a library, and a library inside
   another is scanned as a library, not taken for a game. `plan` never installs a game into a
   folder that has files, so when the game's installer fails, what it left is this install's
   alone and `Plan::remove_partial` removes it (on a thread, after its processes are gone), and
   installing again just works. It removes only a `fresh` plan's own folder right under
-  `~/Games/asterofix`, never the prefix, and a failed fix leaves the game alone.
+  `~/Games/asterofix`, never the prefix, and a failed fix leaves the game alone. Cancelling
+  cleans up the same way.
+- `src/uninstall.rs`: how a game leaves the library, from the last of its page's actions after
+  Copy command (an icon unless its label fits, `page_labels`). Which one depends on
+  `App::origin`: a game the last scan found in a library folder (`App::from_library`) gets
+  Uninstall, one added with Add game (its `.exe` in `manual_exes`) gets Remove from library,
+  which only drops its `.exe`s from the config. Uninstall asks first in a popup naming the
+  folder (`uninstall_dialog` in view.rs), then deletes it on a thread (`App::deleter`, swapped
+  out in tests) and reports through the inbox (`App::uninstall_done`): the page closes, the
+  library rescans, a toast says so. `uninstall::check` runs when Uninstall is pressed, when it's
+  confirmed and again on the thread just before deleting: a real folder (not a link) directly
+  in a library, not a library or one's parent, not holding home or asterofix's own folders or
+  the game's Wine prefix, and still a game. It's refused while the game runs or an installer
+  writes to it. Deleting never follows links, and per-game settings are kept for either action,
+  so a game added or installed again gets them back. Never weaken these checks: a hand-added
+  `.exe`'s "game folder" can be ~/Downloads.
 - `src/art.rs`: Steam names, covers (600x900) and heroes. It checks our cache and Steam's
   library cache first, then asks the store once for the batch and downloads the images from
   the Steam CDN on `DOWNLOAD_WORKERS` threads, covers first, each stored (and `done`) as it

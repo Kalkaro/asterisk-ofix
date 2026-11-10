@@ -62,6 +62,12 @@ Click a game to open its page: Play, its folder and log, and its launch options 
 `.exe`, arguments and the like). The launch options' **Name** renames the game; clear it to go
 back to the detected name.
 
+The last button beside Play takes the game out of the library. For a game found in one of your
+library folders it's **Uninstall**: after asking, it deletes the game's folder. Its saves, in
+its Wine prefix, are kept. For a game added with **Add game** it's **Remove from library**,
+which only forgets the `.exe`; no files are touched. Either way its launch options are kept, so
+adding or installing it again brings them back.
+
 Steam has to be running and logged in. If it isn't, Play starts it; press Play again once
 you're logged in.
 

@@ -16,6 +16,7 @@ mod steam;
 #[cfg(test)]
 mod testutil;
 mod ui;
+mod uninstall;
 mod vdf;
 
 use std::path::{Path, PathBuf};

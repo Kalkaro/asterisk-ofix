@@ -100,6 +100,8 @@ icons! {
     FOLDER_PLUS = r#"<path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6l1.5 1.5h4.9A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5Z" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linejoin="round"/><path d="M8 6.8v4M6 8.8h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>"#;
     DOCUMENT = r#"<path d="M4 2.5h5l3 3v8H4Z" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linejoin="round"/><path d="M9 2.5v3h3M6 8.5h4M6 10.5h4" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round"/>"#;
     GLOBE = r#"<circle cx="8" cy="8" r="5.8" stroke="currentColor" stroke-width="1.2" fill="none"/><ellipse cx="8" cy="8" rx="2.5" ry="5.8" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M2.4 8h11.2" stroke="currentColor" stroke-width="1.2"/>"#;
+    TRASH = r#"<path d="M2.8 4.5h10.4M6.2 4.5V3.2h3.6v1.3M4.3 4.5l.6 8.1a1.2 1.2 0 0 0 1.2 1.1h3.8a1.2 1.2 0 0 0 1.2-1.1l.6-8.1M6.9 7v4.2M9.1 7v4.2" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>"#;
+    REMOVE = r#"<circle cx="8" cy="8" r="5.8" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M5.4 8h5.2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>"#;
     EMPTY = r#"<path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6l1.5 1.5h4.9A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5Z" stroke="currentColor" stroke-width="0.6" fill="none" stroke-linejoin="round"/>"#;
 }
 
