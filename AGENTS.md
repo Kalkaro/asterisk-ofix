@@ -48,7 +48,7 @@ nix develop -c scripts/preview.sh /some/dir
 
 This renders `library.png`, `library-narrow.png`, `hover.png`, `page.png`,
 `page-narrow.png`, `options.png`, `proton-menu.png`, `prefix-menu.png`, `prefix-menu-narrow.png`, `old-saves.png`, `old-saves-narrow.png`, `search.png`, `no-matches.png`, `toast.png`, `running.png`,
-`language-menu.png`, `install.png`, `install-narrow.png`, `install-progress.png`, `uninstall.png`, `uninstall-narrow.png`, `folders.png`, `folders-narrow.png`, and in other languages `page-ru.png`, `library-ru-narrow.png`, `page-ja.png`, `page-fr.png` and `old-saves-fr.png` headlessly (Rune's
+`language-menu.png`, `install.png`, `install-narrow.png`, `install-progress.png`, `uninstall.png`, `uninstall-narrow.png`, `folders.png`, `folders-narrow.png`, `update.png`, `update-narrow.png`, and in other languages `page-ru.png`, `library-ru-narrow.png`, `page-ja.png`, `page-fr.png` and `old-saves-fr.png` headlessly (Rune's
 `--snap`, with the scenes in `view::SCENES`) from a made-up demo library:
 `scripts/demo_home.py` builds a throwaway home with Pong and Game 1 to 4, black and white
 covers drawn like box art (a little scene each, no titles) already in the cache, and a fake Steam with a few Proton builds (Proton 9.0
@@ -183,6 +183,12 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
   write config.json any other way.
 - `src/scan.rs`, `src/steam.rs`, `src/launch.rs`, `src/vdf.rs`,
   `src/paths.rs`: game detection, Proton/Steam discovery, launching and paths.
+- `src/update.rs`: whether a newer release is out. Only the AppImage asks
+  (`App::check_for_update`, from the window's `setup`, never headless), on a thread, GitHub's
+  latest release at most once a day (the answer is kept in the cache folder), and
+  `"check_for_updates": false` turns it off. A newer one shows a toast and an icon button after
+  reload (`update` in `header`, counted in `header_labels`) that opens its page. Nothing is
+  downloaded or replaced.
 - `src/cli.rs`: the command line (`cli::parse`, pure). Unknown flags are errors (exit 2), so
   Rune's own flags (`--snap`, `--scene`, ...) are listed there, copied from Rune's
   `tooling/args.rs`; update the list when bumping Rune.

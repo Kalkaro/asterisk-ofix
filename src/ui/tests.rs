@@ -1294,11 +1294,20 @@ fn header_fits_at_every_width() {
     assert!(MIN_WINDOW.0 < 600.0);
     let mut ui = Ui::new(&[("A Game With A Really Long Name That Goes On", 0)]);
     let labelled = |ui: &Ui, key: &str| ui.rect(key)[2] > 60.0;
-    for lang in Lang::ALL {
-        ui.rt.update(move |s, _| s.lang = lang);
+    // And with the update button beside the reload one.
+    let with_update = [Lang::En, Lang::Fr, Lang::Ru].map(|l| (l, true));
+    for (lang, update) in Lang::ALL.map(|l| (l, false)).into_iter().chain(with_update) {
+        ui.rt.update(move |s, _| {
+            s.lang = lang;
+            s.update = update
+                .then(|| crate::update::Release { version: "10.20.30".into(), url: "https://example.org".into() });
+        });
         for w in [MIN_WINDOW.0, 600.0, 680.0, 760.0, 900.0, 1300.0] {
             ui.resize(w, 600.0);
-            for key in ["rescan", "add-folder", "add-game", "install", "language-trigger"] {
+            for key in ["rescan", "update", "add-folder", "add-game", "install", "language-trigger"] {
+                if key == "update" && ui.find(key).is_none() {
+                    continue;
+                }
                 let [x, _, bw, _] = ui.rect(key);
                 assert!(x + bw <= w - 20.0, "{lang:?} at width {w}: {key} ends at {}", x + bw);
             }
@@ -1308,7 +1317,7 @@ fn header_fits_at_every_width() {
                 !code || labelled(&ui, "add-folder"),
                 "{lang:?} at width {w}: Add folder lost its label while the language button kept its code"
             );
-            if w == MIN_WINDOW.0 && lang == Lang::En {
+            if w == MIN_WINDOW.0 && lang == Lang::En && !update {
                 for key in ["add-game", "install"] {
                     assert!(labelled(&ui, key), "English keeps {key}'s label even in the narrowest window");
                 }
@@ -1319,6 +1328,49 @@ fn header_fits_at_every_width() {
         }
         assert_eq!(ui.text("language-trigger/code"), lang.short());
     }
+}
+
+/// The AppImage asks whether a newer release is out: a toast says so, and a button beside
+/// reload opens its page. Turned off in config.json, or outside the AppImage, it never asks.
+#[test]
+fn a_newer_release_is_announced_and_opens_its_page() {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let api = format!("http://{}/latest", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten() {
+            let _ = stream.read(&mut [0u8; 4096]);
+            let body =
+                r#"{"tag_name":"v99.0.0","html_url":"https://github.com/Kalkaro/asterofix/releases/tag/v99.0.0"}"#;
+            let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+            let _ = stream.write_all(format!("{head}{body}").as_bytes());
+        }
+    });
+    let mut ui = Ui::new(&[("Pong", 0)]);
+    let point = |ui: &mut Ui, appimage: bool, on: Option<bool>| {
+        let api = api.clone();
+        ui.rt.update(move |s, _| {
+            s.releases_api = api;
+            s.host.appimage = appimage;
+            s.cfg.check_for_updates = on;
+            s.check_for_update();
+        });
+    };
+    point(&mut ui, false, None);
+    point(&mut ui, true, Some(false));
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    ui.settle();
+    assert!(ui.rt.state.update.is_none() && ui.find("update").is_none(), "never asked");
+    let cache = ui.paths().cache_dir().join("latest-release.json");
+    assert!(!cache.exists());
+
+    point(&mut ui, true, None);
+    ui.wait_until("the release", |s| s.update.is_some());
+    ui.settle();
+    assert_eq!(ui.toast(), "asterofix 99.0.0 is out");
+    assert!(cache.is_file(), "kept for a day");
+    ui.click("update");
+    assert_eq!(ui.rt.take_url_requests(), ["https://github.com/Kalkaro/asterofix/releases/tag/v99.0.0"]);
 }
 
 /// The language button at the header's end shows the current language's code, and lists
@@ -1831,7 +1883,7 @@ fn library_folders_are_listed_added_and_removed() {
     ui.settle();
     assert_eq!(ui.toast(), "Stopped looking for games in ~/Games");
     assert_eq!(ui.card_names(), ["Hatch"]);
-    assert_eq!(Config::load(&ui.paths()).libraries, [more.clone()]);
+    assert_eq!(Config::load(&ui.paths()).libraries, std::slice::from_ref(&more));
     assert!(ui.game("Pong").is_dir(), "nothing is deleted");
     assert_eq!(ui.text("library0/path"), "~/More");
 

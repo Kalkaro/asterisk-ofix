@@ -59,6 +59,9 @@ pub struct Config {
     /// The UI's language code, picked in the app; empty follows the system's locale.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub language: String,
+    /// `false` stops the AppImage asking GitHub whether a newer release is out (`update`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub check_for_updates: Option<bool>,
 }
 
 enum OnDisk {
@@ -391,8 +394,10 @@ mod tests {
             games: [("/a/X".into(), game("-xx", "")), ("/a/Y".into(), game("-y", "")), ("/c/Z".into(), game("-z", ""))]
                 .into(),
             language: "ja".into(),
+            check_for_updates: Some(false),
         };
         let merged = merge_configs(&base, &ours, &theirs);
+        assert_eq!(merged.check_for_updates, Some(false));
         assert_eq!(merged.libraries, lib(&["/b", "/c"]));
         assert_eq!(merged.manual_exes, lib(&["/z/z.exe"]));
         assert_eq!(merged.settings("/a/X".as_ref()), game("-xx", "GE"), "each side's own field");

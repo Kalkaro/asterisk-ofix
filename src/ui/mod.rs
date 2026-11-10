@@ -119,6 +119,10 @@ pub struct App {
     pub uninstalling: HashSet<PathBuf>,
     /// The Library folders popup is open.
     pub folders_open: bool,
+    /// A newer release than this one, once the check (`check_for_update`) found one.
+    pub update: Option<crate::update::Release>,
+    /// Where the check asks for the latest release. Tests point it at a stand-in.
+    pub releases_api: String,
     pub form: Form,
     /// The prefixes there are, for the Prefix field's menu: read when a page or that menu
     /// opens, never per frame.
@@ -205,6 +209,8 @@ struct Inbox {
     sizes: Vec<(u64, u64)>,
     /// Uninstalled games' folders, their names, and how deleting them went.
     uninstalls: Vec<(PathBuf, String, Result<(), String>)>,
+    /// A newer release, from `check_for_update`.
+    update: Option<crate::update::Release>,
 }
 
 impl App {
@@ -249,6 +255,8 @@ impl App {
             uninstall_confirm: None,
             uninstalling: HashSet::new(),
             folders_open: false,
+            update: None,
+            releases_api: crate::update::LATEST_RELEASE.into(),
             form: Form::default(),
             prefixes: Vec::new(),
             old_saves: Vec::new(),
@@ -306,7 +314,8 @@ impl App {
     /// Picks up what other threads finished; true when anything visible changed.
     pub fn poll(&mut self, now: f64, _tx: &mut Tx) -> bool {
         self.now = now;
-        let Inbox { art, exits, installs, removed, sizes, uninstalls } = std::mem::take(&mut *lock(&self.inbox));
+        let Inbox { art, exits, installs, removed, sizes, uninstalls, update } =
+            std::mem::take(&mut *lock(&self.inbox));
         let mut changed = !art.is_empty()
             || !exits.is_empty()
             || !installs.is_empty()
@@ -317,6 +326,12 @@ impl App {
                 changed |= self.install_size != Some(size);
                 self.install_size = Some(size);
             }
+        }
+        if let Some(release) = update {
+            self.log.line(format!("asterofix {} is out: {}", release.version, release.url));
+            self.set_status(fill(self.t().update_available, &[&release.version]));
+            self.update = Some(release);
+            changed = true;
         }
         for (root, name, result) in uninstalls {
             self.uninstall_done(&root, &name, result);
@@ -984,6 +999,32 @@ impl App {
         });
     }
 
+    /// Asks, off the UI thread, whether a newer release is out, for the AppImage only: Nix and
+    /// the AUR package update through their package managers. The answer is kept for a day
+    /// (`update::check`), and `"check_for_updates": false` in config.json turns it off.
+    pub fn check_for_update(&mut self) {
+        if !self.host.appimage || self.cfg.check_for_updates == Some(false) || rune::tooling::headless_run().is_some() {
+            return;
+        }
+        let (paths, api, inbox, wake) =
+            (self.paths.clone(), self.releases_api.clone(), self.inbox.clone(), self.wake());
+        std::thread::spawn(move || {
+            if let Some(release) = crate::update::check(&paths, &api, VERSION) {
+                lock(&inbox).update = Some(release);
+                wake();
+            }
+        });
+    }
+
+    /// The header's update button: the new release's page, in the browser.
+    pub fn open_update(&mut self, tx: &mut Tx) {
+        let Some(url) = self.update.as_ref().map(|r| r.url.clone()) else { return };
+        // Only a malformed link fails here; then the toast shows it, to copy by hand.
+        if tx.open_url(&url).is_err() {
+            self.set_status(url);
+        }
+    }
+
     /// The header's Add folder: the Library folders popup, where folders are added and
     /// removed, or straight to the folder picker while there are none.
     pub fn open_folders(&mut self, tx: &mut Tx) {
@@ -1510,6 +1551,7 @@ pub fn run() {
         setup: Some(|s, waker| {
             s.setup(waker);
             s.background.animate();
+            s.check_for_update();
         }),
         poll: Some(poll),
         on_key: Some(App::on_key),

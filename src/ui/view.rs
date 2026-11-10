@@ -163,6 +163,12 @@ pub const SCENES: &[Scene] = &[
         s.cfg.libraries.push(gone);
         s.folders_open = true;
     }),
+    // A newer release is out: its toast, and the header's button for it.
+    ("update", |s| {
+        let release = crate::update::Release { version: "0.2.0".into(), url: "https://example.org".into() };
+        s.set_status(fill(s.t().update_available, &[&release.version]));
+        s.update = Some(release);
+    }),
     // The second game is running, with its page open.
     ("running", |s| {
         if let Some(root) = s.games.get(1).map(|g| g.root.clone()) {
@@ -229,7 +235,8 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
 /// labels at `width`. Some languages' labels are twice as long as English's. As the window
 /// narrows the language button shows just its globe first, then Add folder its icon, then Add
 /// game, then Install (`header_fits_at_every_width`).
-fn header_labels(t: &Strings, count: &str, lang: Lang, width: f32) -> usize {
+/// `extra` is what else the header shows today: the update button, while there is one.
+fn header_labels(t: &Strings, count: &str, lang: Lang, width: f32, extra: f32) -> usize {
     let w = |s: &str, style| rune::text::measure(s, &[], style, None).0;
     let labels = [t.add_folder, t.add_game, t.install];
     // What each button takes beyond its icon, in the order they give it up. `HEADER_CHROME`
@@ -237,6 +244,7 @@ fn header_labels(t: &Strings, count: &str, lang: Lang, width: f32) -> usize {
     let language = w(lang.short(), BODY_STRONG) + LABEL_PAD + LANGUAGE_CHEVRON_GAP + LANGUAGE_CHEVRON - ICON_BUTTON;
     let drops = [language].into_iter().chain(labels.iter().map(|l| w(l, BODY_STRONG) + LABEL_PAD - ICON_BUTTON));
     let mut need = HEADER_CHROME
+        + extra
         + language
         + w(t.library, PAGE_TITLE)
         + w(count, CAPTION_STRONG)
@@ -256,7 +264,9 @@ fn header(s: &App, k: &Kit, width: f32, layer: &mut Vec<El>) -> El {
     let count =
         if visible == s.games.len() { s.games.len().to_string() } else { fill(t.of, &[&visible, &s.games.len()]) };
     // Those before `unlabelled` show just their icons: 0 is the language button.
-    let unlabelled = 4 - header_labels(t, &count, s.lang, width);
+    // The update button and the gap before it.
+    let extra = if s.update.is_some() { ICON_BUTTON + 10.0 } else { 0.0 };
+    let unlabelled = 4 - header_labels(t, &count, s.lang, width, extra);
     let button =
         |i: usize, label: &'static str, glyph: &'static rune::Icon, key: &'static str, f: fn(&mut App, &mut Tx)| {
             if i >= unlabelled {
@@ -295,6 +305,10 @@ fn header(s: &App, k: &Kit, width: f32, layer: &mut Vec<El>) -> El {
         .child(text(t.library).key("library-title").font(PAGE_TITLE).color(TEXT))
         .child(text(count).key("count").font(CAPTION_STRONG).color(MUTED).px(8.0).py(2.0).radius(10.0).fill(RAISED))
         .child(reload_button(s, k))
+        .children(s.update.as_ref().map(|r| {
+            let help = fill(t.update_help, &[&r.version]);
+            IconButton::new(&UPDATE).label(help.clone()).help(help).on_press_tx(App::open_update).build(k).key("update")
+        }))
         .child(button(1, t.add_folder, &FOLDER_PLUS, "add-folder", App::open_folders))
         .child(button(2, t.add_game, &PLUS, "add-game", App::add_game))
         .child(button(3, t.install, &DOWNLOAD, "install", |s, _| s.open_install()))

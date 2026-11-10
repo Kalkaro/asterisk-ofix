@@ -19,6 +19,7 @@ mod steam;
 mod testutil;
 mod ui;
 mod uninstall;
+mod update;
 mod vdf;
 
 use std::path::{Path, PathBuf};
