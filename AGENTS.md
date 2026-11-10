@@ -124,7 +124,11 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
   up while one runs (`set_progress`). `~/Games/asterofix` becomes a library, and a library inside
   another is scanned as a library, not taken for a game.
 - `src/art.rs`: Steam names, covers (600x900) and heroes. It checks our cache and Steam's
-  library cache first, then the Steam CDN.
+  library cache first, then asks the store once for the batch and downloads the images from
+  the Steam CDN on `DOWNLOAD_WORKERS` threads, covers first, each stored (and `done`) as it
+  lands. An app whose store call or image download failed is asked for again by the next
+  scan; one the store has no image for isn't. Art already loaded is only ever added to.
+  `art::fake` can fail images, leave apps imageless, slow images down and count them.
 - `src/scan.rs`, `src/steam.rs`, `src/launch.rs`, `src/vdf.rs`, `src/config.rs`,
   `src/paths.rs`: game detection, Proton/Steam discovery, launching, config and paths.
 - `src/cli.rs`: the command line (`cli::parse`, pure). Unknown flags are errors (exit 2), so

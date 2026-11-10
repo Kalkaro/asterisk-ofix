@@ -96,6 +96,39 @@ impl ArtStore {
     }
 }
 
+/// How many images download at once.
+const DOWNLOAD_WORKERS: usize = 6;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Kind {
+    // Covers first: the library's cards show them.
+    Cover,
+    Hero,
+}
+
+impl Kind {
+    fn file(self) -> &'static str {
+        match self {
+            Kind::Cover => "cover.jpg",
+            Kind::Hero => "hero.jpg",
+        }
+    }
+
+    fn max_width(self) -> u32 {
+        match self {
+            Kind::Cover => 600,
+            Kind::Hero => 1920,
+        }
+    }
+}
+
+/// One image to download.
+struct Download {
+    id: u32,
+    kind: Kind,
+    url: String,
+}
+
 impl Inner {
     fn fetch(&self, ids: &[u32], done: &dyn Fn(u32)) {
         let mut missing = Vec::new();
@@ -111,37 +144,94 @@ impl Inner {
         }
         let Ok(assets) = self.store_assets(&missing) else {
             // Most likely offline: the next scan asks again.
-            let mut requested = lock(&self.requested);
-            for id in &missing {
-                requested.remove(id);
-            }
+            self.forget(&missing);
             return;
         };
+        let mut downloads = Vec::new();
         for id in missing {
-            let mut art = lock(&self.art).get(&id).cloned().unwrap_or_default();
+            let have = lock(&self.art).get(&id).cloned().unwrap_or_default();
             let urls = assets.get(&id).cloned().unwrap_or_default();
-            let url = |key: &str| urls.get(key).map(String::as_str).unwrap_or("");
-            if art.hero.is_none() {
-                art.hero = self.fetch_cached(url("library_hero"), &self.path(id, "hero.jpg")).map(|i| fit(i, 1920));
-            }
-            if art.cover.is_none() {
-                art.cover = self.fetch_cached(url("library_capsule"), &self.path(id, "cover.jpg")).map(|i| fit(i, 600));
-            }
+            let url = |key: &str| urls.get(key).cloned().unwrap_or_default();
             let name = url("name");
-            if art.name.is_empty() && !name.is_empty() {
-                art.name = name.to_owned();
+            if have.name.is_empty() && !name.is_empty() {
                 let path = self.path(id, "name.txt");
-                let _ = std::fs::create_dir_all(&self.cache).and_then(|_| std::fs::write(path, name));
+                let _ = std::fs::create_dir_all(&self.cache).and_then(|_| std::fs::write(path, &name));
+                self.store(id, Art { name, ..Art::default() }, done);
             }
-            self.store(id, art, done);
+            // An image the store has no URL for isn't asked for again: there is none.
+            for (kind, have, key) in [
+                (Kind::Cover, have.cover.is_some(), "library_capsule"),
+                (Kind::Hero, have.hero.is_some(), "library_hero"),
+            ] {
+                let url = url(key);
+                if !have && !url.is_empty() {
+                    downloads.push(Download { id, kind, url });
+                }
+            }
+        }
+        downloads.sort_by_key(|d| d.kind);
+        let failed = self.download(downloads, done);
+        // The next scan asks for these again; what did arrive stays.
+        self.forget(&failed);
+    }
+
+    /// Downloads the images a few at a time, storing each as it arrives. Returns the apps
+    /// whose images didn't come.
+    fn download(&self, downloads: Vec<Download>, done: &dyn Fn(u32)) -> Vec<u32> {
+        let workers = DOWNLOAD_WORKERS.min(downloads.len());
+        let queue = Mutex::new(downloads.into_iter());
+        let (tx, rx) = std::sync::mpsc::channel();
+        let agent = agent();
+        std::thread::scope(|s| {
+            for _ in 0..workers {
+                let (tx, queue, agent) = (tx.clone(), &queue, &agent);
+                s.spawn(move || {
+                    loop {
+                        let next = lock(queue).next();
+                        let Some(d) = next else { break };
+                        let img = self.fetch_cached(agent, &d.url, &self.path(d.id, d.kind.file()));
+                        if tx.send((d.id, d.kind, img.map(|i| fit(i, d.kind.max_width())))).is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+            drop(tx);
+            // `done` runs here, on the fetching thread, as each image lands.
+            let mut failed = Vec::new();
+            for (id, kind, img) in rx {
+                match (img, kind) {
+                    (None, _) => failed.push(id),
+                    (cover @ Some(_), Kind::Cover) => self.store(id, Art { cover, ..Art::default() }, done),
+                    (hero @ Some(_), Kind::Hero) => self.store(id, Art { hero, ..Art::default() }, done),
+                }
+            }
+            failed
+        })
+    }
+
+    /// Lets the next `load` ask for these apps again.
+    fn forget(&self, ids: &[u32]) {
+        let mut requested = lock(&self.requested);
+        for id in ids {
+            requested.remove(id);
         }
     }
 
+    /// Adds what `art` has to what's loaded for `id`, keeping the rest.
     fn store(&self, id: u32, art: Art, done: &dyn Fn(u32)) {
         if art.is_empty() {
             return;
         }
-        lock(&self.art).insert(id, art);
+        {
+            let mut all = lock(&self.art);
+            let have = all.entry(id).or_default();
+            if !art.name.is_empty() {
+                have.name = art.name;
+            }
+            have.hero = art.hero.or(have.hero.take());
+            have.cover = art.cover.or(have.cover.take());
+        }
         done(id);
     }
 
@@ -202,14 +292,14 @@ impl Inner {
     }
 
     /// Downloads `src` to `dst` (unless it's there already) and decodes it.
-    fn fetch_cached(&self, src: &str, dst: &Path) -> Option<RgbaImage> {
+    fn fetch_cached(&self, agent: &ureq::Agent, src: &str, dst: &Path) -> Option<RgbaImage> {
         if let Some(img) = decode_file(dst) {
             return Some(img);
         }
         if src.is_empty() {
             return None;
         }
-        let data = agent().get(src).call().ok()?.body_mut().with_config().limit(16 << 20).read_to_vec().ok()?;
+        let data = agent.get(src).call().ok()?.body_mut().with_config().limit(16 << 20).read_to_vec().ok()?;
         std::fs::create_dir_all(&self.cache).ok()?;
         let tmp = dst.with_extension("part");
         std::fs::write(&tmp, &data).ok()?;
@@ -244,15 +334,46 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 pub mod fake {
     //! A stand-in for the Steam store: GetItems and artwork, served from a local socket.
 
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::io::{BufRead, BufReader, Write};
     use std::net::TcpListener;
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     pub struct FakeSteam {
         pub endpoints: super::Endpoints,
+        /// Connections, API calls and images alike.
         pub hits: Arc<AtomicUsize>,
+        pub stats: Arc<Stats>,
+        behaviour: Arc<Mutex<Behaviour>>,
+    }
+
+    /// What the fake has served.
+    #[derive(Default)]
+    pub struct Stats {
+        pub api_calls: AtomicUsize,
+        /// Image requests being answered right now, and the most there ever were.
+        in_flight: AtomicUsize,
+        pub most_images_at_once: AtomicUsize,
+    }
+
+    /// How the fake misbehaves; tests change it as they go.
+    #[derive(Default)]
+    pub struct Behaviour {
+        /// Images whose path contains one of these answer 500: "apps/70/" fails all of app
+        /// 70's, "70/abc/library_hero" just its hero.
+        pub failing: Vec<String>,
+        /// Apps the store knows by name but has no images for.
+        pub imageless: HashSet<u32>,
+        /// How long each image takes.
+        pub image_delay: Duration,
+    }
+
+    impl FakeSteam {
+        pub fn behave(&self, f: impl FnOnce(&mut Behaviour)) {
+            f(&mut super::lock(&self.behaviour));
+        }
     }
 
     /// Serves apps in `names` with a name, a 2400x775 hero and a 600x900 capsule.
@@ -261,17 +382,19 @@ pub mod fake {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let hits = Arc::new(AtomicUsize::new(0));
-        let counter = hits.clone();
+        let stats = Arc::new(Stats::default());
+        let behaviour = Arc::new(Mutex::new(Behaviour::default()));
+        let (counter, server_stats, server_behaviour) = (hits.clone(), stats.clone(), behaviour.clone());
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
                 counter.fetch_add(1, Ordering::SeqCst);
-                let names = names.clone();
+                let (names, stats, behaviour) = (names.clone(), server_stats.clone(), server_behaviour.clone());
                 std::thread::spawn(move || {
                     let mut reader = BufReader::new(&stream);
                     let mut line = String::new();
                     let _ = reader.read_line(&mut line);
                     let target = line.split(' ').nth(1).unwrap_or("").to_owned();
-                    let (status, body) = respond(&names, &target);
+                    let (status, body) = respond(&names, &stats, &behaviour, &target);
                     let mut out = &stream;
                     let _ =
                         write!(out, "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
@@ -282,12 +405,43 @@ pub mod fake {
         FakeSteam {
             endpoints: super::Endpoints { store_api: format!("{base}/api"), asset_base: format!("{base}/assets/") },
             hits,
+            stats,
+            behaviour,
         }
     }
 
-    fn respond(names: &HashMap<u32, String>, target: &str) -> (&'static str, Vec<u8>) {
+    fn respond(
+        names: &HashMap<u32, String>,
+        stats: &Stats,
+        behaviour: &Mutex<Behaviour>,
+        target: &str,
+    ) -> (&'static str, Vec<u8>) {
         let path = target.split('?').next().unwrap_or("");
-        if path == "/api" {
+        // Whatever else finds the port (another process probing it) doesn't count.
+        if !path.starts_with("/assets/") && path != "/api" {
+            return ("404 Not Found", Vec::new());
+        }
+        if path != "/api" {
+            let now = stats.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+            stats.most_images_at_once.fetch_max(now, Ordering::SeqCst);
+            let (delay, failing) = {
+                let b = super::lock(behaviour);
+                (b.image_delay, b.failing.iter().any(|f| path.contains(f.as_str())))
+            };
+            std::thread::sleep(delay);
+            let out = match path {
+                _ if failing => ("500 Internal Server Error", Vec::new()),
+                p if p.ends_with("library_hero.jpg") => ("200 OK", jpeg(2400, 775)),
+                p if p.ends_with("library_capsule_2x.jpg") => ("200 OK", jpeg(600, 900)),
+                p if p.ends_with("library_capsule.jpg") => ("200 OK", jpeg(300, 450)),
+                _ => ("404 Not Found", Vec::new()),
+            };
+            stats.in_flight.fetch_sub(1, Ordering::SeqCst);
+            return out;
+        }
+        stats.api_calls.fetch_add(1, Ordering::SeqCst);
+        {
+            let imageless = &super::lock(behaviour).imageless;
             let query = target.split_once("input_json=").map(|(_, q)| decode(q)).unwrap_or_default();
             let input: serde_json::Value = serde_json::from_str(&query).unwrap_or_default();
             let items: Vec<_> = input["ids"]
@@ -297,6 +451,9 @@ pub mod fake {
                 .filter_map(|i| {
                     let id = i["appid"].as_u64()? as u32;
                     let name = names.get(&id)?;
+                    if imageless.contains(&id) {
+                        return Some(serde_json::json!({ "appid": id, "name": name, "assets": {} }));
+                    }
                     Some(serde_json::json!({ "appid": id, "name": name, "assets": {
                         "asset_url_format": format!("steam/apps/{id}/${{FILENAME}}?t=1"),
                         "library_hero": "abc/library_hero.jpg",
@@ -306,13 +463,7 @@ pub mod fake {
                 })
                 .collect();
             let body = serde_json::json!({ "response": { "store_items": items } });
-            return ("200 OK", body.to_string().into_bytes());
-        }
-        match path {
-            p if p.ends_with("library_hero.jpg") => ("200 OK", jpeg(2400, 775)),
-            p if p.ends_with("library_capsule_2x.jpg") => ("200 OK", jpeg(600, 900)),
-            p if p.ends_with("library_capsule.jpg") => ("200 OK", jpeg(300, 450)),
-            _ => ("404 Not Found", Vec::new()),
+            ("200 OK", body.to_string().into_bytes())
         }
     }
 
@@ -418,5 +569,88 @@ mod tests {
         store.load(&[77], |_| {});
         wait_for("cached art", || store.get(77).cover.is_some());
         assert_eq!(store.get(77).name, "Old Game");
+    }
+
+    /// Ids `load` handed `done`, in order.
+    fn load_and_wait(store: &ArtStore, ids: &[u32]) -> Option<Vec<u32>> {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        let job = store.load(ids, move |id| lock(&log).push(id))?;
+        job.join().unwrap();
+        Some(lock(&seen).clone())
+    }
+
+    /// A library of 40 games made 80 image requests one after another.
+    #[test]
+    fn images_download_several_at_a_time() {
+        let home = tempdir();
+        let apps: Vec<(u32, String)> = (0..12).map(|i| (2000000 + i, format!("Game {i}"))).collect();
+        let names: Vec<(u32, &str)> = apps.iter().map(|(id, n)| (*id, n.as_str())).collect();
+        let steam = fake::start(&names);
+        steam.behave(|b| b.image_delay = Duration::from_millis(100));
+        let store = ArtStore::new(&Paths::under(home.path()), None, steam.endpoints.clone());
+        let ids: Vec<u32> = apps.iter().map(|(id, _)| *id).collect();
+        let seen = load_and_wait(&store, &ids).expect("a fetch");
+        for id in &ids {
+            assert!(store.get(*id).is_complete(), "{id} has all its art");
+            assert!(seen.contains(id), "done({id}) fired");
+        }
+        assert_eq!(steam.stats.api_calls.load(Ordering::SeqCst), 1, "one store call for the batch");
+        let most = steam.stats.most_images_at_once.load(Ordering::SeqCst);
+        assert!(most > 1, "images downloaded one at a time");
+        assert!(most <= DOWNLOAD_WORKERS, "{most} images at once");
+    }
+
+    /// An image that failed to download stayed missing until the app restarted.
+    #[test]
+    fn a_failed_image_download_is_retried() {
+        let home = tempdir();
+        let steam = fake::start(&[(1000001, "Sky Ride"), (1000002, "Zebra Party")]);
+        steam.behave(|b| b.failing = vec!["apps/1000001/".into()]);
+        let store = ArtStore::new(&Paths::under(home.path()), None, steam.endpoints.clone());
+        load_and_wait(&store, &[1000001, 1000002]).expect("a fetch");
+        assert_eq!(store.get(1000001).name, "Sky Ride");
+        assert!(store.get(1000001).cover.is_none());
+        assert!(store.get(1000002).is_complete());
+
+        steam.behave(|b| b.failing.clear());
+        let seen = load_and_wait(&store, &[1000001, 1000002]).expect("the failed app is asked for again");
+        assert!(store.get(1000001).is_complete());
+        assert!(!seen.contains(&1000002), "an app with all its art isn't fetched again");
+        assert!(store.load(&[1000001, 1000002], |_| {}).is_none(), "nothing left to fetch");
+    }
+
+    #[test]
+    fn an_app_the_store_has_no_images_for_is_not_asked_again() {
+        let home = tempdir();
+        let steam = fake::start(&[(1000001, "Sky Ride")]);
+        steam.behave(|b| b.imageless = HashSet::from([1000001]));
+        let store = ArtStore::new(&Paths::under(home.path()), None, steam.endpoints.clone());
+        load_and_wait(&store, &[1000001, 1000003]).expect("a fetch");
+        assert_eq!(store.get(1000001).name, "Sky Ride");
+        assert!(store.load(&[1000001, 1000003], |_| {}).is_none(), "no images, or not in the store at all");
+    }
+
+    /// A retry put what it found locally in place of what was loaded, so a cover no longer in
+    /// the cache went missing.
+    #[test]
+    fn loaded_art_survives_a_retry() {
+        let home = tempdir();
+        let steam = fake::start(&[(1000001, "Sky Ride")]);
+        steam.behave(|b| b.failing = vec!["1000001/abc/library_hero".into()]);
+        let store = ArtStore::new(&Paths::under(home.path()), None, steam.endpoints.clone());
+        load_and_wait(&store, &[1000001]).expect("a fetch");
+        assert!(store.get(1000001).cover.is_some() && store.get(1000001).hero.is_none());
+
+        std::fs::remove_file(store.cache_path(1000001, "cover.jpg")).unwrap();
+        steam.behave(|b| b.failing = vec!["apps/1000001/".into()]);
+        load_and_wait(&store, &[1000001]).expect("the missing hero is asked for again");
+        let art = store.get(1000001);
+        assert!(art.cover.is_some(), "the cover was lost");
+        assert_eq!(art.name, "Sky Ride");
+
+        steam.behave(|b| b.failing.clear());
+        load_and_wait(&store, &[1000001]).expect("asked for again");
+        assert!(store.get(1000001).is_complete());
     }
 }
