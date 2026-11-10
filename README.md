@@ -12,7 +12,8 @@ Arch, Fedora, Ubuntu and most other x86_64 distros (glibc 2.35 or newer)
 curl -fsSL https://raw.githubusercontent.com/Kalkaro/asterofix/main/install.sh | bash
 ```
 
-Run the install again to update. To uninstall, change `bash` to `bash -s -- --uninstall`
+Run the install again to update; the app tells you when a new release is out (it asks GitHub
+at most once a day, and `"check_for_updates": false` in its config.json turns that off). To uninstall, change `bash` to `bash -s -- --uninstall`
 (your saves stay).
 
 NixOS: add it as an input to your flake
@@ -47,7 +48,8 @@ It needs a native Steam install; Flatpak and Snap Steam aren't supported.
 
 ## Usage
 
-Put your games in `~/Games`, or add another folder with **Add folder**. Any folder with a
+Put your games in `~/Games`, or add another folder with **Add folder**, which also lists your
+folders and removes one from the library (nothing in it is deleted). Any folder with a
 Steam Fix / Online Fix in it (`SteamFix*.dll`/`.ini` or `OnlineFix*.dll`/`.ini`) shows up as a
 game. **Add game** takes an `.exe` directly.
 
@@ -56,11 +58,13 @@ its online fix in the popup. A fix downloaded next to the installer's folder is 
 you; it's optional. Both run silently through Proton, the game first and the fix after, into
 `~/Games/asterofix/<game>`. Inno Setup and NSIS installers work. If the game's installer
 fails, what it left there is removed, so you can just install again; the game's prefix (and
-any saves in it) stays.
+any saves in it) stays. While it runs, the bottom of the window shows how much it has written,
+and **Cancel** stops it and cleans up the same way.
 
 Click a game to open its page: Play, its folder and log, and its launch options (Proton, the
 `.exe`, arguments and the like). The launch options' **Name** renames the game; clear it to go
-back to the detected name.
+back to the detected name. The arrow keys move through the library and Enter opens a game's
+page; Enter there plays it.
 
 The last button beside Play takes the game out of the library. For a game found in one of your
 library folders it's **Uninstall**: after asking, it deletes the game's folder. Its saves, in
@@ -72,7 +76,9 @@ Steam has to be running and logged in. If it isn't, Play starts it; press Play a
 you're logged in.
 
 Every game gets its own Wine prefix, in `~/.local/share/asterofix/prefixes/`. Your saves
-live there.
+live there. The prefix is named after the game's folder, so when an update renames it ("Game
+v1.0" to "Game v1.1") the game's page offers the old prefix's saves; the **Wine prefix**
+option's menu lists every prefix if you want to pick one yourself.
 
 The app speaks English, Russian, Ukrainian, German, French, Spanish, Brazilian Portuguese,
 Polish, Turkish, Simplified Chinese and Japanese. It follows your system's language; the language
