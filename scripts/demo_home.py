@@ -327,6 +327,15 @@ def main():
         art(scene, 1920, 620, i).save(os.path.join(cache, f"{app_id}_hero.jpg"), quality=90)
         with open(os.path.join(cache, f"{app_id}_name.txt"), "w") as f:
             f.write(name)
+    # Wine prefixes, for the Prefix field's menu: some games' own, one with no owner file, and
+    # Pong's from before its folder was "Pong v1.0", which Pong hasn't run without since.
+    prefixes = os.path.join(home, ".local", "share", "asterofix", "prefixes")
+    for name, owner in [("Game_1", "Game 1"), ("Game_2", "Game 2"), ("Game_4", "Game 4"),
+                        ("Pong_v1.0", "Pong v1.0"), ("Shared", None)]:
+        os.makedirs(os.path.join(prefixes, name, "pfx", "drive_c"), exist_ok=True)
+        if owner:
+            with open(os.path.join(prefixes, name, ".asterofix-game"), "w") as f:
+                f.write(os.path.join(games, owner))
     print(f"demo home with {len(GAMES)} games in {home}")
 
 

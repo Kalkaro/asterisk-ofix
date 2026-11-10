@@ -91,6 +91,13 @@ pub const SCENES: &[Scene] = &[
             s.open_select = Some("proton");
         }
     }),
+    ("prefix-menu", |s| {
+        if let Some(root) = s.games.first().map(|g| g.root.clone()) {
+            s.open_page(&root);
+            s.options_open = true;
+            s.open_select = Some("prefix");
+        }
+    }),
     ("search", |s| {
         s.search = rune::TextEdit::new("game");
         s.search_open = true;
@@ -314,7 +321,7 @@ fn language_button(s: &App, k: &Kit, labelled: bool, layer: &mut Vec<El>) -> El 
         // Coloured like the button it opens from.
         let fill = k.c.bg_button_neutral;
         let menu = Menu { key: KEY, label: s.t().language, width: 220.0, rows: Lang::ALL.len() as f32, fill };
-        menu.build(k, &names, Some(s.lang.name()), App::choose_language, &code, layer);
+        menu.build(k, &names, Some(s.lang.name()), App::choose_language, &code, &|_| None, layer);
     }
     let toggle = |s: &mut App, tx: &mut Tx| s.toggle_select(KEY, tx);
     if !labelled {
@@ -937,7 +944,66 @@ fn launch_options(s: &App, k: &Kit, g: &Game, spec: Option<&LaunchSpec>, width: 
         )
         .child(input(k, "overrides", t.dll_overrides, &s.form.overrides, &d.overrides, |s| &mut s.form.overrides))
         .child(input(k, "env", t.environment, &s.form.env, "KEY=value …", |s| &mut s.form.env))
-        .child(input(k, "prefix", t.wine_prefix, &s.form.prefix, &d.prefix.to_string_lossy(), |s| &mut s.form.prefix))
+        .child(prefix_field(s, k, spec, &d, width, layer))
+}
+
+/// The Wine prefix: a path typed or pasted like the other fields, or one of the prefixes there
+/// are, picked from a menu that opens from the chevron at the field's end and hangs under the
+/// field, as wide as it. The game's own comes first, and picking it clears the field. Each
+/// prefix shows the game folder that owns it, if one does, and whether that folder is gone.
+fn prefix_field(s: &App, k: &Kit, spec: Option<&LaunchSpec>, d: &LaunchSpec, width: f32, layer: &mut Vec<El>) -> El {
+    const KEY: &str = "prefix";
+    let t = s.t();
+    let open = s.open_select == Some(KEY);
+    if open {
+        let dir = crate::prefixes::prefixes_dir(&s.paths);
+        let own = (!d.prefix.as_os_str().is_empty())
+            .then(|| (crate::scan::file_name(&d.prefix), Some(t.prefix_default.to_owned())));
+        let others = s.prefixes.iter().filter(|p| p.path != d.prefix).map(|p| {
+            let owner = p.owner.as_deref().map(|o| {
+                let shown = tilde(o, &s.paths.home);
+                if p.orphaned() { fill(t.prefix_owner_gone, &[&shown]) } else { shown }
+            });
+            (p.name.clone(), owner)
+        });
+        let (names, details): (Vec<String>, Vec<Option<String>>) = own.into_iter().chain(others).unzip();
+        let current = spec.map(|sp| &sp.prefix).filter(|p| p.parent() == Some(dir.as_path()));
+        let current = current.map(|p| crate::scan::file_name(p));
+        let detail = |i: usize| {
+            details[i].clone().map(|d| text(d).key("owner").font(CAPTION).color(MUTED).truncate().shrink())
+        };
+        let menu = Menu { key: KEY, label: t.wine_prefix, width, rows: Menu::ROWS, fill: open_field_fill(k) };
+        menu.build(k, &names, current.as_deref(), App::choose_prefix, &|_| None, &detail, layer);
+    }
+    let chevron = IconButton::new(k.glyph.chevron_down)
+        .label(t.choose_prefix)
+        .help(t.choose_prefix)
+        .variant(IconButtonVariant::Ghost)
+        .expanded(open)
+        .on_press_tx(|s: &mut App, tx: &mut Tx| s.toggle_select(KEY, tx))
+        .build(k)
+        .key("prefix-menu-button")
+        // Its chevron under the Proton field's.
+        .mr(-4.0);
+    let input = TextInput::new(&s.form.prefix)
+        .placeholder(d.prefix.to_string_lossy())
+        .label(t.wine_prefix)
+        .width(None)
+        .trailing(chevron)
+        .on_edit(|s: &mut App| &mut s.form.prefix)
+        .on_change(|s: &mut App, _| s.save_form())
+        .build(k)
+        // The menu hangs from it.
+        .key("prefix-trigger");
+    field(t.wine_prefix, el().key(KEY).w_full().child(input))
+}
+
+/// `path`, with the home folder shown as `~`.
+fn tilde(path: &Path, home: &Path) -> String {
+    match path.strip_prefix(home) {
+        Ok(rel) if home.parent().is_some() => format!("~/{}", rel.to_string_lossy()),
+        _ => path.to_string_lossy().into_owned(),
+    }
 }
 
 /// What the kit fills an open Select field with: its hover tint over the page, blended as the
@@ -992,6 +1058,7 @@ impl Picker {
                 current,
                 choose,
                 &|_| None,
+                &|_| None,
                 layer,
             );
         }
@@ -1015,7 +1082,8 @@ impl Menu {
     const ROWS: f32 = 6.5;
     const ROW_H: f32 = 32.0;
 
-    /// `leading` gives what an option shows before its name.
+    /// `leading` gives what an option shows before its name, and `trailing` after it.
+    #[allow(clippy::too_many_arguments)]
     fn build(
         self,
         k: &Kit,
@@ -1023,6 +1091,7 @@ impl Menu {
         current: Option<&str>,
         choose: fn(&mut App, &str),
         leading: &dyn Fn(usize) -> Option<El>,
+        trailing: &dyn Fn(usize) -> Option<El>,
         layer: &mut Vec<El>,
     ) {
         let key = self.key;
@@ -1047,7 +1116,8 @@ impl Menu {
                 .on_press(move |s: &mut App| choose(s, &value))
                 .children(leading(i))
                 .child(text(option.clone()).font(BODY).color(TEXT).truncate().grow(1.0).shrink())
-                .child(icon(k.glyph.check_small, 14.0).color(TEXT).opacity(if chosen { 1.0 } else { 0.0 }))
+                .children(trailing(i))
+                .child(icon(k.glyph.check_small, 14.0).key("check").color(TEXT).opacity(if chosen { 1.0 } else { 0.0 }))
         });
         let max_h = 4.0 + self.rows * (Self::ROW_H + 2.0);
         // Pressing anywhere else closes it, as Escape does (`App::on_key`).

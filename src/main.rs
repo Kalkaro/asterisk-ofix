@@ -11,6 +11,7 @@ mod install;
 mod integration_tests;
 mod launch;
 mod paths;
+mod prefixes;
 mod scan;
 mod steam;
 #[cfg(test)]

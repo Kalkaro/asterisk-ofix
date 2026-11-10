@@ -47,8 +47,8 @@ nix develop -c scripts/preview.sh /some/dir
 ```
 
 This renders `library.png`, `library-narrow.png`, `hover.png`, `page.png`,
-`page-narrow.png`, `options.png`, `proton-menu.png`, `search.png`, `no-matches.png`, `toast.png`, `running.png`,
-`language-menu.png`, `install.png`, `install-narrow.png`, `uninstall.png`, `uninstall-narrow.png`, and in other languages `page-ru.png`, `library-ru-narrow.png`, `page-ja.png` and `page-fr.png` headlessly (Rune's
+`page-narrow.png`, `options.png`, `proton-menu.png`, `prefix-menu.png`, `prefix-menu-narrow.png`, `search.png`, `no-matches.png`, `toast.png`, `running.png`,
+`language-menu.png`, `install.png`, `install-narrow.png`, `install-progress.png`, `uninstall.png`, `uninstall-narrow.png`, and in other languages `page-ru.png`, `library-ru-narrow.png`, `page-ja.png` and `page-fr.png` headlessly (Rune's
 `--snap`, with the scenes in `view::SCENES`) from a made-up demo library:
 `scripts/demo_home.py` builds a throwaway home with Pong and Game 1 to 4, black and white
 covers drawn like box art (a little scene each, no titles) already in the cache, and a fake Steam with a few Proton builds (Proton 9.0
@@ -227,6 +227,9 @@ installer on the user's machine; check it in CI. Run `shellcheck` and `actionlin
 - The page's dropdowns are `Picker`s: rune-kit's Select field with a menu of our own, under
   the field's left edge and as wide as it. The kit's menu hangs off the field's right end
   at 160 points and truncates long Proton names (`picker_menu_lines_up_with_its_field`).
+  The Wine prefix field stays a text field (a path can be typed or pasted) with a chevron at
+  its end that opens the same kind of menu, listing the prefixes there are, read when the page
+  or the menu opens (`prefix_menu_lists_the_prefixes_there_are`).
 - A `matched` element in flight draws above the whole window at its own opacity, ignoring
   its ancestors'. So no card in the hidden grid shows its cover while a page is open: a
   cover flying home when another page opened sat on top of it

@@ -309,7 +309,8 @@ pub fn claim_default_prefix(paths: &Paths, spec: &LaunchSpec) -> std::io::Result
     std::fs::write(spec.prefix.join(PREFIX_OWNER), spec.game_dir.as_os_str().as_bytes())
 }
 
-fn prefix_owner(prefix: &Path) -> Option<PathBuf> {
+/// The game folder that claimed `prefix`, if one did.
+pub fn prefix_owner(prefix: &Path) -> Option<PathBuf> {
     use std::os::unix::ffi::OsStrExt;
     let data = std::fs::read(prefix.join(PREFIX_OWNER)).ok()?;
     Some(PathBuf::from(std::ffi::OsStr::from_bytes(&data)))

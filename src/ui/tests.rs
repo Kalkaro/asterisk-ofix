@@ -1073,6 +1073,73 @@ fn picker_menu_lines_up_with_its_field() {
     assert!(ui.find("page").is_some(), "and leaves the page open");
 }
 
+/// The Prefix field takes a typed path as before, and its chevron lists the prefixes there
+/// are: the game's own first, then the rest by name, each with the folder that owns it (marked
+/// when it's gone). Picking one saves it as the game's prefix, which `--launch` reads too.
+#[test]
+fn prefix_menu_lists_the_prefixes_there_are() {
+    use crate::prefixes::{fake_prefix, prefixes_dir};
+    let mut ui = Ui::new(&[("Pong", 0)]);
+    let (root, paths) = (ui.game("Pong"), ui.paths());
+    fake_prefix(&paths, "Pong", Some(&root), 100);
+    let old = fake_prefix(&paths, "Pong_v1.0", Some(&ui.game("Pong v1.0")), 100);
+    fake_prefix(&paths, "Bare", None, 100);
+    let open = root.clone();
+    ui.rt.update(move |s, _| {
+        s.open_page(&open);
+        s.options_open = true;
+    });
+    ui.settle();
+    // Made after the page opened: the list is read again when the menu opens.
+    fake_prefix(&paths, "Hatch", Some(&root.with_file_name("Hatch")), 100);
+    std::fs::create_dir_all(root.with_file_name("Hatch")).unwrap();
+
+    ui.click("prefix-menu-button");
+    ui.settle();
+    assert_eq!(ui.rt.state.open_select, Some("prefix"), "the chevron opens the menu");
+    let option = |ui: &Ui, i: usize| ui.find(&format!("prefix-option{i}")).and_then(|e| e.label);
+    let names: Vec<_> = (0..5).map(|i| option(&ui, i)).collect();
+    let want = ["Pong", "Bare", "Hatch", "Pong_v1.0"].map(|n| Some(n.to_owned()));
+    assert_eq!(names[..4], want, "the game's own first, then by name");
+    assert_eq!(names[4], None);
+    assert_eq!(ui.text("prefix-option0/owner"), "this game\u{2019}s own");
+    assert_eq!(ui.text("prefix-option1/owner"), "", "no owner file, nothing to say");
+    assert_eq!(ui.text("prefix-option2/owner"), "~/Games/Hatch");
+    assert_eq!(ui.text("prefix-option3/owner"), "~/Games/Pong v1.0, no longer there");
+    let [fx, _, fw, _] = ui.rect("prefix-trigger");
+    let [mx, _, mw, _] = ui.rect("prefix-menu");
+    assert_eq!((mx, mw), (fx, fw), "the menu lines up with the whole field");
+    assert_eq!(ui.presented("prefix-option0/check").unwrap().1, 1.0, "the game\u{2019}s own is in use");
+
+    ui.click("prefix-option3");
+    ui.settle();
+    assert!(ui.find("prefix-menu").is_none(), "choosing closes the menu");
+    let old_path = old.to_string_lossy().into_owned();
+    assert_eq!(Config::load(&paths).settings(&root).prefix, old_path);
+    assert_eq!(ui.rt.state.form.prefix.text, old_path, "the field shows the chosen path");
+    // The command line builds its launch from the same saved settings.
+    let game = crate::scan::detect_game(&root).unwrap();
+    let cfg = Config::load(&paths);
+    let spec = crate::launch::build_spec(&paths, &game, &cfg.settings(&root), &[], "").unwrap();
+    assert_eq!(spec.prefix, old);
+    ui.click("prefix-menu-button");
+    ui.settle();
+    assert_eq!(ui.presented("prefix-option3/check").unwrap().1, 1.0);
+    assert_eq!(ui.presented("prefix-option0/check").unwrap().1, 0.0);
+
+    // The game's own clears the override.
+    ui.click("prefix-option0");
+    ui.settle();
+    assert!(!Config::load(&paths).games.contains_key(&root), "{:?}", Config::load(&paths).settings(&root));
+    assert_eq!(ui.rt.state.form.prefix.text, "");
+
+    // A path of one's own is still typed in.
+    ui.click("prefix");
+    ui.type_text("/elsewhere/pfx");
+    assert_eq!(Config::load(&paths).settings(&root).prefix, "/elsewhere/pfx");
+    assert!(prefixes_dir(&paths).join("Pong").is_dir(), "no prefix is ever moved or removed");
+}
+
 /// Cards keep one size while the window resizes; only the column count changes. Stretching
 /// them made a live resize jitter.
 #[test]

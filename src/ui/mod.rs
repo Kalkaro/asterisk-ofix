@@ -14,8 +14,9 @@ use crate::art::{ArtStore, Endpoints, has_art};
 use crate::background::Background;
 use crate::config::{Config, GameSettings};
 use crate::install::Plan;
-use crate::launch::{LaunchSpec, OnExit, build_spec, first_non_empty, stop_game};
+use crate::launch::{LaunchSpec, OnExit, build_spec, default_prefix, first_non_empty, stop_game};
 use crate::paths::Paths;
+use crate::prefixes::Prefix;
 use crate::scan::{Game, game_from_exe, scan_libraries};
 use crate::steam::{self, Proton, Steam};
 use i18n::{Lang, Strings, fill};
@@ -108,6 +109,9 @@ pub struct App {
     /// Games whose folders are being deleted.
     pub uninstalling: HashSet<PathBuf>,
     pub form: Form,
+    /// The prefixes there are, for the Prefix field's menu: read when a page or that menu
+    /// opens, never per frame.
+    pub prefixes: Vec<Prefix>,
     /// The open dropdown on the page.
     pub open_select: Option<&'static str>,
     /// How many times the reload button was pressed: its icon turns once for each.
@@ -228,6 +232,7 @@ impl App {
             uninstall_confirm: None,
             uninstalling: HashSet::new(),
             form: Form::default(),
+            prefixes: Vec::new(),
             open_select: None,
             reload_turns: 0,
             hero_id: None,
@@ -605,6 +610,9 @@ impl App {
             self.open_select = None;
         } else {
             self.open_select = Some(key);
+            if key == "prefix" {
+                self.load_prefixes();
+            }
             tx.settle();
         }
     }
@@ -626,6 +634,12 @@ impl App {
             env: TextEdit::new(s.env),
             prefix: TextEdit::new(s.prefix),
         };
+        self.load_prefixes();
+    }
+
+    /// Reads which prefixes there are, while a page is open.
+    fn load_prefixes(&mut self) {
+        self.prefixes = if self.selected.is_some() { crate::prefixes::list(&self.paths) } else { Vec::new() };
     }
 
     /// Changes the open game's settings and saves them.
@@ -662,6 +676,23 @@ impl App {
     pub fn choose_proton(&mut self, name: &str) {
         let default = self.default_proton.clone();
         self.edit(|s, _| s.proton = if name == default { String::new() } else { name.to_owned() });
+        self.open_select = None;
+    }
+
+    /// The prefix called `name` in the Prefix field's menu. The game's own is saved as no
+    /// override, so it follows the game's folder as it always did.
+    pub fn choose_prefix(&mut self, name: &str) {
+        let path = crate::prefixes::prefixes_dir(&self.paths).join(name);
+        let paths = self.paths.clone();
+        self.edit(|s, g| {
+            s.prefix = if path == default_prefix(&paths, &g.root) {
+                String::new()
+            } else {
+                path.to_string_lossy().into_owned()
+            };
+        });
+        let chosen = self.current().map(|g| self.cfg.settings(&g.root).prefix).unwrap_or_default();
+        self.form.prefix = TextEdit::new(chosen);
         self.open_select = None;
     }
 
