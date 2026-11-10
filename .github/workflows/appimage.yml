@@ -1,5 +1,5 @@
 # Builds the AppImage, checks that install.sh installs it and that it starts on a few
-# distros, and attaches it to the release when a v* tag is pushed.
+# distros, and attaches it to the release when a v* tag is pushed and the tests pass.
 name: AppImage
 
 on:
@@ -79,9 +79,13 @@ jobs:
           name: screenshot-${{ matrix.distro }}
           path: ${{ matrix.distro }}.png
 
+  # Clippy and the test suite (test.yml); a tag whose suite fails is never released.
+  test:
+    uses: ./.github/workflows/test.yml
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: smoke
+    needs: [smoke, test]
     runs-on: ubuntu-latest
     permissions:
       contents: write

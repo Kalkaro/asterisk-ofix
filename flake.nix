@@ -101,7 +101,8 @@
               # (160 MB). Update it with the rev in Cargo.toml.
               outputHashes."rune-0.0.1" = "sha256-sdskmmer1AdrlLLKN4ga7D/W02D01lztof5UloWCwUY=";
             };
-            # Tests need a writable HOME and some spawn processes; `nix develop -c cargo test` runs them.
+            # Tests need a writable HOME and some spawn processes; `nix develop -c cargo test` runs
+            # them, and CI does in .github/workflows/test.yml.
             doCheck = false;
             nativeBuildInputs = [
               pkgs.pkg-config

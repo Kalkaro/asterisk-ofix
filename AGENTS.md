@@ -135,10 +135,15 @@ links only glibc (everything else is dlopen()ed from the system), plus
 `packaging/asterofix.desktop` and the icon `packaging/asterofix.svg` (drawn by
 `scripts/icon.py` from the font's asterisk). CI (`.github/workflows/appimage.yml`) builds it
 on Ubuntu 22.04, runs `install.sh` and a headless `--snap` in Ubuntu, Debian, Fedora and Arch
-containers, and attaches it to the release on a `v*` tag. `install.sh` is the curl one-liner
+containers, and attaches it to the release on a `v*` tag, but only once the tests pass too.
+They're `.github/workflows/test.yml`: `cargo clippy --all-targets -- -D warnings` (so keep
+clippy clean) and `cargo test`, on Ubuntu 22.04 with the pinned toolchain, on every branch
+push and pull request, and called from `appimage.yml` for a tag. The UI tests need no GPU or
+Vulkan driver; the job installs DejaVu and Noto CJK, the fonts they fall back to for Cyrillic
+and CJK text. `install.sh` is the curl one-liner
 in the README: it fetches the release's AppImage into `~/.local/bin` with a menu entry, and
 `--uninstall` removes those but never `~/.local/share/asterofix` (the saves). Keep
-`RUST_TOOLCHAIN` in `appimage.sh` and the workflow in step with flake.nix. Don't run the
+`RUST_TOOLCHAIN` in `appimage.sh` and both workflows in step with flake.nix. Don't run the
 installer on the user's machine; check it in CI. Run `shellcheck` and `actionlint` on changes.
 
 ## Gotchas
