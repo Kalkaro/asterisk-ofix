@@ -1418,6 +1418,66 @@ fn a_failed_installer_stops_the_install() {
     assert_eq!(fl.count(), 2);
 }
 
+impl Ui {
+    /// Runs frames until `done`, for work that finishes on another thread.
+    fn wait_until(&mut self, what: &str, done: impl Fn(&App) -> bool) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !done(&self.rt.state) {
+            assert!(std::time::Instant::now() < deadline, "timed out waiting for {what}");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            self.rt.frame(1.0 / 60.0);
+        }
+    }
+}
+
+/// A game's installer that fails halfway leaves nothing behind: what it wrote is removed, so
+/// installing again just works. The prefix stays (it may hold an older game's saves), and a
+/// fix that fails leaves the game it was for alone.
+#[test]
+fn a_failed_install_can_be_tried_again() {
+    let mut ui = Ui::new(&[]);
+    ui.with_proton();
+    let fl = FakeLaunch::install(&mut ui);
+    let (setup, fix) = ui.downloads();
+    let dest = ui.home.path().join("Games/asterofix/Lucid Cats");
+    let files = vec![setup, fix];
+    let picked = files.clone();
+    ui.rt.update(move |s, _| s.start_install(picked));
+    ui.settle();
+    let save = fl.0.borrow().0[0].prefix.join("pfx/drive_c/users/steamuser/save.dat");
+    crate::testutil::write(&save, "x");
+    crate::testutil::write(&dest.join("data/part1.bin"), "half a game");
+    fl.killed();
+    ui.settle();
+    assert_eq!(ui.toast(), "Install failed: setup.exe: signal: 15 (SIGTERM)");
+    ui.wait_until("the cleanup", |s| s.removing.is_none());
+    assert!(!dest.exists(), "what the installer left is gone");
+    assert!(save.is_file(), "the prefix and its saves stay");
+
+    let picked = files.clone();
+    ui.rt.update(move |s, _| s.start_install(picked));
+    ui.settle();
+    assert_eq!(fl.count(), 2, "installing again works");
+    crate::testutil::write(&dest.join("LucidCats.exe"), "x");
+    fl.exit();
+    ui.settle();
+    assert_eq!(fl.count(), 3, "then the fix");
+    fl.0.borrow_mut().1.take().unwrap()(Err("exit status: 1".into()));
+    ui.settle();
+    assert_eq!(ui.toast(), "Install failed: Lucid-Cats-Multiplayer-Fix-Online.exe: exit status: 1");
+    assert!(ui.rt.state.removing.is_none() && dest.join("LucidCats.exe").is_file(), "the game stays");
+
+    // No install starts while one's leftovers are still being removed.
+    ui.rt.update(|s, _| s.removing = Some("Pong".into()));
+    ui.click("install");
+    ui.settle();
+    assert!(ui.find("install-dialog").is_none());
+    assert_eq!(ui.toast(), "Still removing the unfinished install of Pong");
+    ui.rt.update(move |s, _| s.start_install(files));
+    ui.settle();
+    assert_eq!(fl.count(), 3);
+}
+
 /// One relayout of a 40-game library at a new width (the app's share of a live resize) and
 /// one backdrop frame (drawn at 15 fps off the UI thread). Both must stay well under a frame:
 ///

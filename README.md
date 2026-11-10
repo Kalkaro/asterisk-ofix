@@ -54,7 +54,9 @@ game. **Add game** takes an `.exe` directly.
 **Install** installs a game for you: choose the game's installer (a repack's `setup.exe`) and
 its online fix in the popup. A fix downloaded next to the installer's folder is filled in for
 you; it's optional. Both run silently through Proton, the game first and the fix after, into
-`~/Games/asterofix/<game>`. Inno Setup and NSIS installers work.
+`~/Games/asterofix/<game>`. Inno Setup and NSIS installers work. If the game's installer
+fails, what it left there is removed, so you can just install again; the game's prefix (and
+any saves in it) stays.
 
 Steam has to be running and logged in. If it isn't, Play starts it; press Play again once
 you're logged in.

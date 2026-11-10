@@ -111,6 +111,7 @@ pub const SCENES: &[Scene] = &[
                 name: "Pong".into(),
                 dest: s.paths.home.join(crate::install::INSTALL_DIR).join("Pong"),
                 steps: Vec::new(),
+                fresh: true,
             })),
         });
     }),

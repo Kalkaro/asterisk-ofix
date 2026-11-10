@@ -79,6 +79,9 @@ pub struct App {
     pub logs: HashMap<PathBuf, PathBuf>,
     /// The game being installed, and which of its installers is running.
     pub installing: Option<(Plan, usize)>,
+    /// The game whose failed install's folder is being removed, off the UI thread. No other
+    /// install starts until it's gone, so the removal can't reach a new one's files.
+    pub removing: Option<String>,
     /// The Install popup, while it's open.
     pub install_form: Option<InstallForm>,
     pub form: Form,
@@ -140,6 +143,8 @@ struct Inbox {
     exits: Vec<(PathBuf, String, Result<(), String>)>,
     /// How each installer ended.
     installs: Vec<Result<(), String>>,
+    /// How removing a failed install's folder went (`App::remove_partial`).
+    removed: Vec<Result<bool, String>>,
 }
 
 impl App {
@@ -182,6 +187,7 @@ impl App {
             stopping: HashSet::new(),
             logs: HashMap::new(),
             installing: None,
+            removing: None,
             install_form: None,
             form: Form::default(),
             open_select: None,
@@ -235,10 +241,13 @@ impl App {
     /// Picks up what other threads finished; true when anything visible changed.
     pub fn poll(&mut self, now: f64, _tx: &mut Tx) -> bool {
         self.now = now;
-        let Inbox { art, exits, installs } = std::mem::take(&mut *lock(&self.inbox));
-        let mut changed = !art.is_empty() || !exits.is_empty() || !installs.is_empty();
+        let Inbox { art, exits, installs, removed } = std::mem::take(&mut *lock(&self.inbox));
+        let mut changed = !art.is_empty() || !exits.is_empty() || !installs.is_empty() || !removed.is_empty();
         for result in installs {
             self.install_step_done(result);
+        }
+        for result in removed {
+            self.partial_removed(result);
         }
         for id in art {
             self.show_art(id);
@@ -694,9 +703,10 @@ impl App {
 
     /// Opens the Install popup, where the game's installer and its online fix are chosen.
     pub fn open_install(&mut self) {
-        match &self.installing {
-            Some((plan, _)) => self.set_status(fill(self.t().already_installing, &[&plan.name])),
-            None => {
+        match (&self.installing, &self.removing) {
+            (Some((plan, _)), _) => self.set_status(fill(self.t().already_installing, &[&plan.name])),
+            (_, Some(name)) => self.set_status(fill(self.t().still_removing, &[name])),
+            (None, None) => {
                 self.open_select = None;
                 self.install_form = Some(InstallForm::default());
             }
@@ -764,6 +774,9 @@ impl App {
         if self.installing.is_some() {
             return;
         }
+        if let Some(name) = &self.removing {
+            return self.set_status(fill(t.still_removing, &[name]));
+        }
         if self.launcher.is_none() {
             return self.set_status(t.no_steam);
         }
@@ -816,6 +829,11 @@ impl App {
             Err(e) => self.log.line(format!("{exe} exited with {e}")),
         }
         if let Err(e) = result.map_err(|e| format!("{exe}: {e}")).and_then(|()| plan.check(step)) {
+            // What the game's installer left would stop the next try. A failed fix leaves the
+            // game it was for alone.
+            if !plan.steps[step].is_fix {
+                self.remove_partial(plan);
+            }
             return self.set_status(fill(t.install_failed, &[&e]));
         }
         if step + 1 < plan.steps.len() {
@@ -828,6 +846,33 @@ impl App {
         self.close_search();
         self.open_page(&plan.dest);
         self.set_status(fill(t.installed, &[&plan.name]));
+    }
+
+    /// Removes the folder a failed game install left (`Plan::remove_partial`) on another
+    /// thread: it waits for the installer's last processes, and a game can be gigabytes.
+    fn remove_partial(&mut self, plan: Plan) {
+        if !plan.fresh {
+            return;
+        }
+        self.removing = Some(plan.name.clone());
+        let (paths, inbox, wake) = (self.paths.clone(), self.inbox.clone(), self.wake());
+        std::thread::spawn(move || {
+            let result = plan.remove_partial(&paths, &crate::launch::game_running);
+            lock(&inbox).removed.push(result.map_err(|e| format!("{}: {e}", plan.name)));
+            wake();
+        });
+    }
+
+    fn partial_removed(&mut self, result: Result<bool, String>) {
+        let Some(name) = self.removing.take() else { return };
+        match result {
+            Ok(true) => self.log.line(format!("Removed what the install of {name} left")),
+            Ok(false) => {}
+            Err(e) => {
+                self.log.line(format!("Couldn't remove what the install of {name} left: {e}"));
+                self.set_status(fill(self.t().install_failed, &[&e]));
+            }
+        }
     }
 
     pub fn add_game(&mut self, tx: &mut Tx) {

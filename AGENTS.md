@@ -122,7 +122,11 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
   `winebrowser.exe=d` stops installers opening their readme in a browser. Steps chain through
   the inbox (`App::install_step_done`), so the launcher stays on the UI thread; the toast stays
   up while one runs (`set_progress`). `~/Games/asterofix` becomes a library, and a library inside
-  another is scanned as a library, not taken for a game.
+  another is scanned as a library, not taken for a game. `plan` never installs a game into a
+  folder that has files, so when the game's installer fails, what it left is this install's
+  alone and `Plan::remove_partial` removes it (on a thread, after its processes are gone), and
+  installing again just works. It removes only a `fresh` plan's own folder right under
+  `~/Games/asterofix`, never the prefix, and a failed fix leaves the game alone.
 - `src/art.rs`: Steam names, covers (600x900) and heroes. It checks our cache and Steam's
   library cache first, then asks the store once for the batch and downloads the images from
   the Steam CDN on `DOWNLOAD_WORKERS` threads, covers first, each stored (and `done`) as it

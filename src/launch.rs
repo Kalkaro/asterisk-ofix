@@ -438,6 +438,11 @@ pub fn stop_game(game_dir: &Path) -> usize {
     pids.len()
 }
 
+/// Whether any process of the game (or installer) in `game_dir` is left.
+pub fn game_running(game_dir: &Path) -> bool {
+    !game_pids(game_dir).is_empty()
+}
+
 /// The processes carrying `GAME_MARKER` for `game_dir`.
 fn game_pids(game_dir: &Path) -> Vec<i32> {
     use std::os::unix::ffi::OsStrExt;

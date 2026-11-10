@@ -7,7 +7,8 @@ use crate::paths::Paths;
 use crate::scan::{file_name, pretty_name, read_dir_sorted};
 use crate::steam::Proton;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
+use std::time::{Duration, Instant};
 
 /// Where installed games go, under the home folder. It's added to the libraries.
 pub const INSTALL_DIR: &str = "Games/asterofix";
@@ -21,6 +22,10 @@ const GENERIC_STEMS: &[&str] = &["setup", "install", "installer", "autorun", "la
 /// How long the start of an installer is searched for its kind. Inno Setup's marker sits in its
 /// loader, NSIS's right after its stub; a repack's data can be gigabytes after them.
 const SNIFF_BYTES: u64 = 4 << 20;
+
+/// How long a failed install's cleanup waits for the installer's last processes to go before
+/// it removes their folder anyway. Stop kills what's left of them after five seconds.
+const CLEANUP_WAIT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -43,6 +48,10 @@ pub struct Plan {
     pub name: String,
     pub dest: PathBuf,
     pub steps: Vec<Step>,
+    /// `dest` had no files when `plan` took it, so everything in it is this install's own, and
+    /// a failed install may remove it (`remove_partial`). Only a plan that installs the game
+    /// has a fresh folder; one that adds a fix to a game installed before never does.
+    pub fresh: bool,
 }
 
 /// Sorts the chosen installers into the game's and its fixes, whatever order they were
@@ -67,13 +76,15 @@ pub fn plan(paths: &Paths, files: &[PathBuf]) -> Result<Plan, String> {
     }
     let dest = paths.home.join(INSTALL_DIR).join(&name);
     let installs_game = !first.is_fix;
+    // Never over anything: what a failed install leaves is removed, which is only safe because
+    // none of it was there before.
     if installs_game && dir_has_files(&dest) {
         return Err(format!("{} already exists", dest.display()));
     }
     if !installs_game && !dest.is_dir() {
         return Err(format!("install {name} first: {} doesn't exist", dest.display()));
     }
-    Ok(Plan { name, dest, steps })
+    Ok(Plan { name, dest, steps, fresh: installs_game })
 }
 
 impl Plan {
@@ -102,6 +113,34 @@ impl Plan {
             return Err(format!("the installer finished without installing anything in {}", self.dest.display()));
         }
         Ok(())
+    }
+
+    /// Removes what the game's installer left in `dest` after it failed or was cancelled, so
+    /// installing again just works. It removes nothing unless `plan` found the folder without
+    /// files (`fresh`), and nothing but this game's own folder right under ~/Games/asterofix,
+    /// never what a symlink there points to. The Wine prefix stays: it may be an older game's,
+    /// with its saves. It first waits (a while at most) until no process is `running` in the
+    /// folder, so a dying installer doesn't write into it after. True if it removed anything.
+    pub fn remove_partial(&self, paths: &Paths, running: &dyn Fn(&Path) -> bool) -> Result<bool, String> {
+        if !self.fresh {
+            return Ok(false);
+        }
+        let one_folder = matches!(Path::new(&self.name).components().collect::<Vec<_>>()[..], [Component::Normal(_)]);
+        if !one_folder || self.dest != paths.home.join(INSTALL_DIR).join(&self.name) {
+            return Err(format!("not removing {}: it isn't an install's own folder", self.dest.display()));
+        }
+        let deadline = Instant::now() + CLEANUP_WAIT;
+        while running(&self.dest) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let failed = |e: std::io::Error| format!("removing the unfinished install in {}: {e}", self.dest.display());
+        match std::fs::symlink_metadata(&self.dest) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(failed(e)),
+            Ok(m) if !m.is_dir() => Err(format!("not removing {}: it isn't a folder", self.dest.display())),
+            // remove_dir_all doesn't follow the symlinks inside either.
+            Ok(_) => std::fs::remove_dir_all(&self.dest).map(|()| true).map_err(failed),
+        }
     }
 }
 
@@ -328,6 +367,73 @@ mod tests {
         write(&plan.dest.join("LucidCats.exe"), "x");
         assert_eq!(plan.check(0), Ok(()));
         assert_eq!(plan.check(1), Ok(()));
+    }
+
+    /// What a failed game installer left goes, so the retry isn't refused, and nothing else
+    /// does: not the prefix with its saves, not the other games beside it.
+    #[test]
+    fn a_failed_install_removes_only_its_own_folder() {
+        let home = tempdir();
+        let paths = Paths::under(home.path());
+        let setup = installer(&home.path().join("Downloads/Lucid Cats v2.4"), "setup.exe", Kind::Inno);
+        let plan = plan(&paths, std::slice::from_ref(&setup)).unwrap();
+        assert!(plan.fresh);
+        let other = home.path().join("Games/asterofix/Pong/Pong.exe");
+        write(&other, "x");
+        let save = default_prefix(&paths, &plan.dest).join("pfx/drive_c/users/steamuser/Saved Games/save.dat");
+        write(&save, "x");
+        write(&plan.dest.join("data/part1.bin"), "half a game");
+        assert!(super::plan(&paths, std::slice::from_ref(&setup)).unwrap_err().contains("already exists"));
+
+        // It waits for the installer's processes to go first.
+        let polls = std::cell::Cell::new(0);
+        let running = |dir: &Path| {
+            assert_eq!(dir, plan.dest);
+            polls.set(polls.get() + 1);
+            polls.get() < 3
+        };
+        assert_eq!(plan.remove_partial(&paths, &running), Ok(true));
+        assert_eq!(polls.get(), 3);
+        assert!(!plan.dest.exists(), "what the installer left is gone");
+        assert!(save.is_file(), "the prefix and its saves stay");
+        assert!(other.is_file(), "other games stay");
+        assert!(super::plan(&paths, std::slice::from_ref(&setup)).is_ok(), "installing again works");
+        assert_eq!(plan.remove_partial(&paths, &|_| false), Ok(false), "nothing left to remove");
+    }
+
+    #[test]
+    fn never_removes_a_folder_it_did_not_start_empty() {
+        let home = tempdir();
+        let paths = Paths::under(home.path());
+        let game = home.path().join("Games/asterofix/Pong/Pong.exe");
+        write(&game, "x");
+        let fix = installer(home.path(), "Pong-Fix.exe", Kind::Inno);
+        let only_fix = plan(&paths, std::slice::from_ref(&fix)).unwrap();
+        assert!(!only_fix.fresh, "a fix goes into a game installed before");
+        assert_eq!(only_fix.remove_partial(&paths, &|_| false), Ok(false));
+        assert!(game.is_file());
+
+        // A plan pointing anywhere but its own folder under ~/Games/asterofix is refused.
+        let fresh = |name: &str, dest: PathBuf| Plan { name: name.into(), dest, steps: Vec::new(), fresh: true };
+        let install_dir = home.path().join(INSTALL_DIR);
+        for plan in [
+            fresh("Pong", home.path().join("Games/Pong")),
+            fresh("..", install_dir.join("..")),
+            fresh("", install_dir.clone()),
+            fresh("Games", home.path().join("Games")),
+            fresh("a/Pong", install_dir.join("a/Pong")),
+        ] {
+            assert!(plan.remove_partial(&paths, &|_| false).is_err(), "{}", plan.dest.display());
+        }
+        assert!(game.is_file());
+
+        // Nor what a symlink in its place points to.
+        let elsewhere = home.path().join("elsewhere/keep.txt");
+        write(&elsewhere, "x");
+        std::os::unix::fs::symlink(elsewhere.parent().unwrap(), install_dir.join("Linked")).unwrap();
+        let linked = fresh("Linked", install_dir.join("Linked"));
+        assert!(linked.remove_partial(&paths, &|_| false).is_err());
+        assert!(elsewhere.is_file() && install_dir.join("Linked").exists());
     }
 
     #[test]

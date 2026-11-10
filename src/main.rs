@@ -85,8 +85,19 @@ fn install_cli(files: &[PathBuf]) -> Result<(), String> {
         let (tx, rx) = std::sync::mpsc::channel();
         let log = steam.launch(&paths, &spec, Box::new(move |r| drop(tx.send(r))))?;
         println!("installing {} into {} (log: {})", scan::file_name(&step.exe), plan.dest.display(), log.display());
-        rx.recv().map_err(|e| e.to_string())?.map_err(|e| format!("{}: {e}", scan::file_name(&step.exe)))?;
-        plan.check(i)?;
+        let result = rx.recv().map_err(|e| e.to_string())?.map_err(|e| format!("{}: {e}", scan::file_name(&step.exe)));
+        if let Err(e) = result.and_then(|()| plan.check(i)) {
+            // What the game's installer left would stop the next try; a failed fix leaves the
+            // game alone.
+            if !step.is_fix {
+                match plan.remove_partial(&paths, &launch::game_running) {
+                    Ok(true) => eprintln!("removed the unfinished install in {}", plan.dest.display()),
+                    Ok(false) => {}
+                    Err(cleanup) => eprintln!("warning: {cleanup}"),
+                }
+            }
+            return Err(e);
+        }
     }
     let (mut cfg, warning) = config::Config::open(&paths);
     if let Some(warning) = warning {
