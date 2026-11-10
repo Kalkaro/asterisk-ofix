@@ -387,13 +387,17 @@ fn search_bar(s: &App, k: &Kit, window_w: f32) -> El {
         // it. This keeps the typed text immediate and animates the rest.
         .animate_edit_layout()
         .on_edit(|s: &mut App| &mut s.search)
-        // The field would take Escape to drop its focus; here it closes the search.
-        .on_key(|s: &mut App, ev: &rune::KeyEvent, _: &mut Tx| {
-            let escape = matches!(ev.key, rune::Key::Escape);
-            if escape {
+        // The field would take Escape to drop its focus; here it closes the search. Up and Down
+        // move through the cards it found and Return opens one, while Left and Right stay
+        // the text's.
+        .on_key(|s: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| match ev.key {
+            rune::Key::Escape => {
                 s.close_search();
+                true
             }
-            escape
+            rune::Key::Up | rune::Key::Down => s.move_cursor(&ev.key, tx),
+            rune::Key::Enter => s.open_cursor(),
+            _ => false,
         })
         .on_change(|s: &mut App, _| {
             // Deleting everything typed puts it away again.
@@ -482,6 +486,7 @@ fn hero(s: &App, width: f32) -> Option<El> {
 fn main(s: &App, k: &Kit, width: f32, layer: &mut Vec<El>) -> El {
     let visible = s.visible();
     let page = s.current();
+    s.grid_cols.set(grid_cols(width));
     // Just after a click on a card opens its page, a second click still goes to the card.
     let opening = s.page_opening();
     // The grid stays mounted while a search narrows it, so cards that stop matching fade
@@ -520,6 +525,11 @@ fn main(s: &App, k: &Kit, width: f32, layer: &mut Vec<El>) -> El {
     }))
 }
 
+/// How many cards fit across the grid in a window `width` wide.
+pub fn grid_cols(width: f32) -> usize {
+    (((width - 2.0 * GUTTER + GAP) / (CARD_W + GAP)).floor() as usize).max(1)
+}
+
 /// Keys can't hold `/` (it separates a key path), so the folder is escaped. Escaped, not
 /// slugged: a slug gave "A B" and "A_B" the same key.
 pub fn card_key(root: &Path) -> String {
@@ -536,6 +546,8 @@ fn card(s: &App, g: &Game) -> El {
     let name = s.display_name(g);
     let root = g.root.clone();
     let running = s.running.contains(&g.root);
+    // The arrow keys' card looks as the pointer's does.
+    let lit = if s.cursor.as_deref() == Some(g.root.as_path()) { 1.0 } else { 0.0 };
     let cover = s.images.get(&g.real_id).and_then(|i: &Images| i.cover.as_ref());
     let layer = || el().absolute(0.0, 0.0).size(CARD_W, CARD_H);
 
@@ -559,7 +571,7 @@ fn card(s: &App, g: &Game) -> El {
         }
         // Darkens the art under the pointer, more at the bottom where the name sits, and
         // always while the game runs, so the Stop button stands out on light covers.
-        let dim = if running { 1.0 } else { 0.0 };
+        let dim = if running { 1.0 } else { lit };
         art = art.child(
             layer().key("dim").gradient(Color::BLACK.alpha(0.25), Color::BLACK.alpha(0.6)).group_opacity(dim, 1.0),
         );
@@ -567,7 +579,7 @@ fn card(s: &App, g: &Game) -> El {
         art = if !running {
             // Fades in under the pointer.
             art.child(
-                cover_button("play", t.play, &PLAY).group_opacity(0.0, 1.0).on_press(move |s: &mut App| s.play(&at)),
+                cover_button("play", t.play, &PLAY).group_opacity(lit, 1.0).on_press(move |s: &mut App| s.play(&at)),
             )
         } else {
             // Always there while the game runs.
@@ -576,7 +588,7 @@ fn card(s: &App, g: &Game) -> El {
         };
         // A hairline at rest, a bright ring under the pointer.
         art.child(layer().radius(12.0).border(1.0, Color::WHITE.alpha(0.08)))
-            .child(layer().radius(12.0).border(2.0, Color::WHITE.alpha(0.8)).group_opacity(0.0, 1.0))
+            .child(layer().key("ring").radius(12.0).border(2.0, Color::WHITE.alpha(0.8)).group_opacity(lit, 1.0))
     };
 
     let at = root.clone();

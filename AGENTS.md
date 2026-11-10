@@ -93,7 +93,12 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
   into Stop. Stop signals every process carrying `GAME_MARKER` (the game's folder, set in
   its environment at launch), inside Steam's sandbox too (`stop_game`). The search is hidden until you type with no text field focused (`App::on_key`),
   then floats over the bottom of the window; Escape, emptying it, or clicking away while
-  it's empty puts it away. Ctrl+F opens it too. There is no status bar: messages go
+  it's empty puts it away. Ctrl+F opens it too. The arrows, Home and End move a cursor
+  through the grid (`App::move_cursor`, by `App::grid_cols`, which the view sets as it lays
+  the grid out), and its card shows as hovered (`group_opacity` from `App::cursor`). Return
+  opens its page and Return on the page plays, unless a text field is being typed in
+  (`App::editing`); in the search field Up, Down and Return do the same, and Left and Right
+  stay the text's. A button the pointer pressed keeps focus, so these ignore it. There is no status bar: messages go
   through `App::set_status`, which shows a toast (above the search bar while it's open).
 - `src/ui/theme.rs`: palette, type, the embedded Google Sans Flex font, icons (SVG bodies),
   and the rune-kit `Kit`.

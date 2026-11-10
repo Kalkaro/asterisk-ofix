@@ -21,6 +21,7 @@ use crate::scan::{Game, game_from_exe, scan_libraries};
 use crate::steam::{self, Proton, Steam};
 use i18n::{Lang, Strings, fill};
 use rune::{AppSpec, FileDialogOptions, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker};
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -78,6 +79,11 @@ pub struct App {
     pub search_open: bool,
     /// The game whose page is open, in place of the grid.
     pub selected: Option<PathBuf>,
+    /// The card the arrow keys are on, drawn as if the pointer were over it. Enter opens its
+    /// page; a game whose page opened keeps it, so Escape comes back to where it was.
+    pub cursor: Option<PathBuf>,
+    /// How many cards a row of the grid holds, as last drawn: what Up and Down skip.
+    pub grid_cols: Cell<usize>,
     /// A page opened by a click on a card leaves the grid under the pointer until then, so the
     /// second click of a double click still reaches the card.
     pub opening_until: f64,
@@ -222,6 +228,8 @@ impl App {
             search: TextEdit::default(),
             search_open: false,
             selected: None,
+            cursor: None,
+            grid_cols: Cell::new(1),
             opening_until: 0.0,
             options_open: false,
             running: HashSet::new(),
@@ -367,6 +375,17 @@ impl App {
             Key::Escape if self.search_open => self.close_search(),
             Key::Escape if self.open_select.is_some() => self.open_select = None,
             Key::Escape if self.selected.is_some() => self.close_page(),
+            // The search field hands Return, Up and Down to the grid itself (`search_bar`).
+            Key::Enter if plain && self.open_select.is_none() && !self.editing() => match self.selected.clone() {
+                Some(root) => self.play(&root),
+                None => return self.open_cursor(),
+            },
+            Key::Up | Key::Down | Key::Left | Key::Right | Key::Home | Key::End
+                if plain && self.selected.is_none() && self.open_select.is_none() && !self.editing() =>
+            {
+                tx.blur();
+                return self.move_cursor(&ev.key, tx);
+            }
             Key::Command('f') => {
                 // Search goes through the library, so it leaves the page.
                 self.close_page();
@@ -388,6 +407,45 @@ impl App {
             }
             _ => return false,
         }
+        true
+    }
+
+    /// Whether a text field is being typed in, which keeps Return and the arrows. A button the
+    /// pointer last pressed keeps focus, but not the keys: Space still presses it.
+    fn editing(&self) -> bool {
+        let f = &self.form;
+        [&self.search, &f.name, &f.fake_id, &f.args, &f.overrides, &f.env, &f.prefix].iter().any(|e| e.focused)
+    }
+
+    /// Moves the grid's cursor with an arrow, Home or End, and scrolls to its card. With none
+    /// yet, any of them puts it on the first card shown.
+    pub fn move_cursor(&mut self, key: &Key, tx: &mut Tx) -> bool {
+        let visible = self.visible();
+        let Some(last) = visible.len().checked_sub(1) else { return false };
+        let cols = self.grid_cols.get().max(1);
+        let at = self.cursor.as_ref().and_then(|c| visible.iter().position(|g| &g.root == c));
+        let next = match (at, key) {
+            (None, _) | (_, Key::Home) => 0,
+            (_, Key::End) => last,
+            (Some(i), Key::Left) => i.saturating_sub(1),
+            (Some(i), Key::Right) => (i + 1).min(last),
+            (Some(i), Key::Up) => i.checked_sub(cols).unwrap_or(i),
+            // Down from above a short last row lands on its last card, as file managers do.
+            (Some(i), Key::Down) if i / cols < last / cols => (i + cols).min(last),
+            (Some(i), _) => i,
+        };
+        let root = visible[next].root.clone();
+        tx.scroll_into_view(view::card_key(&root));
+        self.cursor = Some(root);
+        true
+    }
+
+    /// Return on the grid: the cursor's game opens, or the only one a search left.
+    pub fn open_cursor(&mut self) -> bool {
+        let visible = self.visible();
+        let at = self.cursor.as_ref().filter(|c| visible.iter().any(|g| &&g.root == c)).cloned();
+        let Some(root) = at.or_else(|| (visible.len() == 1).then(|| visible[0].root.clone())) else { return false };
+        self.open_page(&root);
         true
     }
 
@@ -598,6 +656,7 @@ impl App {
     pub fn open_page(&mut self, root: &Path) {
         if self.selected.as_deref() != Some(root) {
             self.selected = Some(root.to_path_buf());
+            self.cursor = Some(root.to_path_buf());
             self.open_select = None;
             self.load_form();
         }

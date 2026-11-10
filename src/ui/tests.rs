@@ -234,6 +234,83 @@ fn library_shows_sorted_cards() {
     assert!(ui.find("page").is_none() && ui.find("empty").is_none(), "only the library shows");
 }
 
+/// The arrows move a cursor through the grid, row by row as it's drawn, and light its card as
+/// the pointer would. Enter opens its page, Enter there plays, and Escape comes back to it.
+#[test]
+fn arrows_and_enter_move_through_and_open_cards() {
+    let names = ["A1", "A2", "A3", "A4", "A5", "A6", "A7"];
+    let games: Vec<(&str, u32)> = names.iter().map(|n| (*n, 0)).collect();
+    let mut ui = Ui::new(&games);
+    ui.with_proton();
+    let fl = FakeLaunch::install(&mut ui);
+    for w in [600.0, 1080.0, 1500.0] {
+        ui.resize(w, SIZE.1);
+        let cards = ui.cards();
+        let first_row = cards.iter().filter(|c| c[1] == cards[0][1]).count();
+        assert_eq!(ui.rt.state.grid_cols.get(), first_row.min(names.len()), "at {w}");
+    }
+    ui.resize(SIZE.0, SIZE.1);
+    let cols = ui.rt.state.grid_cols.get();
+    assert_eq!(cols, 5);
+    let at = |ui: &Ui| ui.rt.state.cursor.as_deref().map(crate::scan::file_name);
+    let lit = |ui: &Ui, n: &str| ui.presented(&format!("{}/ring", ui.card(n))).unwrap().1;
+
+    ui.key(Key::Right);
+    assert_eq!(at(&ui).as_deref(), Some("A1"), "the first arrow lands on the first card");
+    ui.settle();
+    assert_eq!((lit(&ui, "A1"), lit(&ui, "A2")), (1.0, 0.0));
+    ui.key(Key::Right);
+    ui.key(Key::Down);
+    assert_eq!(at(&ui).as_deref(), Some("A7"), "down from above a short row lands on its last card");
+    ui.key(Key::Up);
+    assert_eq!(at(&ui).as_deref(), Some("A2"));
+    ui.key(Key::Up);
+    ui.key(Key::Left);
+    ui.key(Key::Left);
+    assert_eq!(at(&ui).as_deref(), Some("A1"), "it stops at the ends");
+    ui.key(Key::End);
+    assert_eq!(at(&ui).as_deref(), Some("A7"));
+    ui.key(Key::Home);
+    // A click on a header button doesn't keep the arrows from the grid.
+    ui.click("rescan");
+    ui.settle();
+    ui.key(Key::Right);
+
+    ui.key(Key::Enter);
+    ui.settle();
+    assert_eq!(ui.rt.state.selected.as_deref(), Some(ui.game("A2").as_path()), "Enter opens its page");
+    ui.key(Key::Left);
+    assert_eq!(at(&ui).as_deref(), Some("A2"), "the arrows are the page's while it's open");
+    ui.key(Key::Enter);
+    ui.settle();
+    assert_eq!(fl.count(), 1, "Enter on the page plays");
+    assert_eq!(fl.0.borrow().0[0].game_dir, ui.game("A2"));
+    fl.exit();
+    ui.settle();
+    ui.rt.update(|s, _| s.options_open = true);
+    ui.settle();
+    ui.click("game-name");
+    assert!(ui.rt.state.form.name.focused);
+    ui.key(Key::Enter);
+    ui.settle();
+    assert_eq!(fl.count(), 1, "not while typing in a launch option");
+    ui.key(Key::Escape);
+    ui.settle();
+    ui.key(Key::Escape);
+    ui.settle();
+    assert!(ui.rt.state.selected.is_none() && at(&ui).as_deref() == Some("A2"));
+
+    // In the search field Up and Down move through what it found, and Return opens one.
+    ui.type_text("A");
+    ui.settle();
+    ui.key(Key::Down);
+    assert_eq!(at(&ui).as_deref(), Some("A7"));
+    assert_eq!(ui.rt.state.search.text, "A", "the text is left alone");
+    ui.key(Key::Enter);
+    ui.settle();
+    assert_eq!(ui.rt.state.selected.as_deref(), Some(ui.game("A7").as_path()));
+}
+
 #[test]
 fn empty_library_offers_to_add_games() {
     let ui = Ui::new(&[]);
