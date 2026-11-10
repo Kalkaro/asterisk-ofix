@@ -29,7 +29,11 @@ impl Ui {
     }
 
     fn with_store(games: &[(&str, u32)], store: fake::FakeSteam) -> Ui {
-        let home = tempdir();
+        Ui::in_home(tempdir(), games, store)
+    }
+
+    /// A window on `home`, set up beforehand, as `new` makes one.
+    fn in_home(home: TempDir, games: &[(&str, u32)], store: fake::FakeSteam) -> Ui {
         let lib = home.path().join("Games");
         std::fs::create_dir_all(&lib).unwrap();
         for (folder, id) in games {
@@ -427,6 +431,55 @@ fn double_click_without_steam_says_so() {
     let card = ui.card("Pong");
     ui.double_click(&card);
     assert!(ui.toast().contains("Steam installation not found"), "toast: {:?}", ui.toast());
+}
+
+/// With only a Flatpak or Snap Steam, what says Steam is missing says it found that one, that
+/// it isn't supported, and to install the native Steam: the toast at startup, on Play, on
+/// Install and on reload, the log and diagnostics. The message fits a toast in every language.
+#[test]
+fn a_flatpak_or_snap_steam_is_named() {
+    for (dir, kind) in [
+        (".var/app/com.valvesoftware.Steam", crate::steam::Unsupported::Flatpak),
+        ("snap/steam", crate::steam::Unsupported::Snap),
+    ] {
+        let home = tempdir();
+        std::fs::create_dir_all(home.path().join(dir)).unwrap();
+        let mut ui = Ui::in_home(home, &[("Pong", 0)], fake::start(&[]));
+        let name = kind.name();
+        let want = format!("Found Steam as a {name}, which isn't supported. Install the native Steam.");
+        assert_eq!(ui.toast(), want, "at startup");
+        ui.rt.update(|s, _| s.set_status("something else"));
+        ui.double_click(&ui.card("Pong"));
+        assert_eq!(ui.toast(), want, "on Play");
+        ui.key(Key::Escape);
+        ui.rt.update(|s, _| s.set_status("something else"));
+        let (setup, fix) = ui.downloads();
+        ui.rt.update(move |s, _| s.start_install(vec![setup, fix]));
+        assert_eq!(ui.toast(), want, "on Install");
+        ui.rt.update(|s, _| s.set_status("something else"));
+        ui.click("rescan");
+        assert_eq!(ui.toast(), want, "on reload");
+
+        let english = format!(
+            "not found (Steam is installed as a {name}, which asterofix doesn't support: install the native Steam)"
+        );
+        let log = std::fs::read_to_string(ui.rt.state.log.path()).unwrap();
+        assert!(log.contains(&format!("Steam: {english}\n")), "{log}");
+        let d = ui.rt.state.diagnostics();
+        assert!(d.contains(&format!("- Steam: {english}\n")), "{d}");
+
+        ui.rt.update(|s, _| s.lang = Lang::Ru);
+        ui.click("rescan");
+        assert_eq!(ui.toast(), i18n::fill(i18n::RU.steam_unsupported, &[&name]));
+        // A toast is 640 points at most, and cuts longer messages short.
+        let long: Vec<_> = Lang::ALL
+            .into_iter()
+            .map(|lang| i18n::fill(lang.strings().steam_unsupported, &[&name]))
+            .map(|text| (rune::text::measure(&text, &[], super::theme::BODY, None).0, text))
+            .filter(|(w, _)| *w > 640.0 - 32.0 - 16.0)
+            .collect();
+        assert!(long.is_empty(), "too long for a toast: {long:?}");
+    }
 }
 
 #[test]

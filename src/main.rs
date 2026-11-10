@@ -41,7 +41,7 @@ fn main() {
 
 fn launch_cli(target: &Path, prefix: Option<PathBuf>, print: bool) -> Result<(), String> {
     let paths = paths::Paths::from_env();
-    let steam = steam::detect(&paths.home).ok_or("Steam installation not found")?;
+    let steam = steam::detect(&paths.home).ok_or_else(|| steam::no_steam_error(&paths.home))?;
     let target = std::path::absolute(target).map_err(|e| e.to_string())?;
     let game = if target.is_dir() {
         scan::detect_game(&target)
@@ -74,7 +74,7 @@ fn launch_cli(target: &Path, prefix: Option<PathBuf>, print: bool) -> Result<(),
 
 fn install_cli(files: &[PathBuf]) -> Result<(), String> {
     let paths = paths::Paths::from_env();
-    let steam = steam::detect(&paths.home).ok_or("Steam installation not found")?;
+    let steam = steam::detect(&paths.home).ok_or_else(|| steam::no_steam_error(&paths.home))?;
     let files: Vec<PathBuf> =
         files.iter().map(std::path::absolute).collect::<Result<_, _>>().map_err(|e| e.to_string())?;
     let plan = install::plan(&paths, &files)?;

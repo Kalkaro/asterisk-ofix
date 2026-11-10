@@ -52,6 +52,8 @@ pub struct App {
     /// The game launched last, which diagnostics describe when no page is open.
     pub last_launched: Option<PathBuf>,
     pub steam: Option<Steam>,
+    /// The Flatpak or Snap Steam found when there's no native one.
+    pub unsupported_steam: Option<steam::Unsupported>,
     pub protons: Vec<Proton>,
     pub default_proton: String,
     pub cfg: Config,
@@ -239,12 +241,13 @@ impl App {
             steam_running: steam::steam_running,
             paths,
             steam: None,
+            unsupported_steam: None,
             protons: Vec::new(),
             default_proton: String::new(),
         };
         app.detect_steam(true);
         if app.steam.is_none() {
-            app.set_status(app.t().no_steam);
+            app.set_status(app.no_steam());
         }
         if let Some(warning) = cfg_warning {
             app.set_status(warning);
@@ -421,7 +424,7 @@ impl App {
         self.reload_turns = self.reload_turns.wrapping_add(1);
         self.detect_steam(false);
         if self.steam.is_none() {
-            self.set_status(self.t().no_steam);
+            self.set_status(self.no_steam());
         }
         self.rescan();
     }
@@ -433,19 +436,29 @@ impl App {
         let steam = steam::detect(&self.paths.home);
         let protons = steam.as_ref().map(Steam::protons).unwrap_or_default();
         let default_proton = steam.as_ref().map(|s| s.default_proton(&protons)).unwrap_or_default();
+        let unsupported = if steam.is_none() { steam::unsupported(&self.paths.home) } else { None };
         let root = |s: &Option<Steam>| s.as_ref().map(|s| s.root.clone());
-        if always || root(&steam) != root(&self.steam) {
+        if always || root(&steam) != root(&self.steam) || unsupported != self.unsupported_steam {
             match &steam {
                 Some(steam) => self.log.line(format!("Steam: {}", steam.root.display())),
-                None => self.log.line("Steam: not found"),
+                None => self.log.line(format!("Steam: {}", steam::not_found(unsupported))),
             }
         }
+        self.unsupported_steam = unsupported;
         if always || protons != self.protons || default_proton != self.default_proton {
             self.log.line(format!("Proton: {}", proton_summary(&protons, &default_proton)));
         }
         // Its library cache has artwork; what's loaded already stays.
         self.art.set_steam_root(steam.as_ref().map(|s| s.root.as_path()));
         (self.steam, self.protons, self.default_proton) = (steam, protons, default_proton);
+    }
+
+    /// Why there's no Steam, in the UI's language: none, or one asterofix can't use.
+    fn no_steam(&self) -> String {
+        match self.unsupported_steam {
+            None => self.t().no_steam.to_owned(),
+            Some(u) => fill(self.t().steam_unsupported, &[&u.name()]),
+        }
     }
 
     /// Whether games can start: Steam is known, looked for again if it wasn't (or a test's
@@ -462,7 +475,7 @@ impl App {
         match (&self.launcher_override, &self.steam) {
             (Some(launcher), _) => launcher(spec, on_exit),
             (None, Some(steam)) => steam.launch(&self.paths, spec, on_exit),
-            (None, None) => Err("Steam installation not found".into()),
+            (None, None) => Err(steam::no_steam_error(&self.paths.home)),
         }
     }
 
@@ -688,7 +701,7 @@ impl App {
             return self.set_status(fill(t.uninstalling, &[&self.display_name(&g)]));
         }
         if !self.can_launch() {
-            return self.set_status(t.no_steam);
+            return self.set_status(self.no_steam());
         }
         let spec = match self.spec_for(&g) {
             Ok(spec) => spec,
@@ -765,7 +778,8 @@ impl App {
         const LINES: usize = 40;
         let h = &self.host;
         let appimage = if h.appimage { ", AppImage" } else { "" };
-        let steam = self.steam.as_ref().map_or("not found".into(), |s| s.root.display().to_string());
+        let steam =
+            self.steam.as_ref().map_or(steam::not_found(self.unsupported_steam), |s| s.root.display().to_string());
         let mut out = format!("**asterofix {VERSION}**\n\n");
         out += &format!("- System: {} (kernel {}), {}{appimage}\n", h.os, h.kernel, h.session);
         out += &format!("- Steam: {steam}\n");
@@ -891,7 +905,7 @@ impl App {
             return self.set_status(fill(t.still_removing, &[name]));
         }
         if !self.can_launch() {
-            return self.set_status(t.no_steam);
+            return self.set_status(self.no_steam());
         }
         match crate::install::plan(&self.paths, &files) {
             Ok(plan) => {

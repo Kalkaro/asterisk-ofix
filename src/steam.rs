@@ -30,6 +30,51 @@ pub fn detect(home: &Path) -> Option<Steam> {
     })
 }
 
+/// A Steam asterofix can't use. Flatpak's and Snap's Steam run in a sandbox of their own, and
+/// their Proton can't be started from outside it with the overlay.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Unsupported {
+    Flatpak,
+    Snap,
+}
+
+impl Unsupported {
+    pub fn name(self) -> &'static str {
+        match self {
+            Unsupported::Flatpak => "Flatpak",
+            Unsupported::Snap => "Snap",
+        }
+    }
+}
+
+/// The Flatpak or Snap Steam in `home`, which says why no native Steam was found.
+pub fn unsupported(home: &Path) -> Option<Unsupported> {
+    if home.join(".var/app/com.valvesoftware.Steam").is_dir() {
+        Some(Unsupported::Flatpak)
+    } else if home.join("snap/steam").is_dir() {
+        Some(Unsupported::Snap)
+    } else {
+        None
+    }
+}
+
+/// "not found", and why when that's a Steam asterofix can't use, in English for the command
+/// line, the log and diagnostics.
+pub fn not_found(unsupported: Option<Unsupported>) -> String {
+    match unsupported {
+        None => "not found".into(),
+        Some(u) => format!(
+            "not found (Steam is installed as a {}, which asterofix doesn't support: install the native Steam)",
+            u.name()
+        ),
+    }
+}
+
+/// The command line's error when `home` has no Steam to use.
+pub fn no_steam_error(home: &Path) -> String {
+    format!("Steam installation {}", not_found(unsupported(home)))
+}
+
 impl Steam {
     pub fn target_pid(&self) -> i32 {
         if self.sandbox_pid != 0 { self.sandbox_pid } else { steam_client_pid() }
@@ -301,6 +346,27 @@ mod tests {
         assert_eq!(protons[2].runtime, None);
         assert_eq!(steam.default_proton(&protons), "Proton - Experimental");
         assert!(detect(tempdir().path()).is_none());
+    }
+
+    /// Flatpak's and Snap's Steam aren't supported, and the error says so rather than that
+    /// there's no Steam at all. A native Steam beside one is used.
+    #[test]
+    fn says_when_steam_is_a_flatpak_or_a_snap() {
+        let home = tempdir();
+        assert_eq!(unsupported(home.path()), None);
+        assert_eq!(no_steam_error(home.path()), "Steam installation not found");
+        for (dir, kind) in [
+            (".var/app/com.valvesoftware.Steam/.local/share/Steam", Unsupported::Flatpak),
+            ("snap/steam/common", Unsupported::Snap),
+        ] {
+            let home = tempdir();
+            std::fs::create_dir_all(home.path().join(dir)).unwrap();
+            assert_eq!(unsupported(home.path()), Some(kind));
+            assert!(detect(home.path()).is_none());
+            let e = no_steam_error(home.path());
+            assert!(e.starts_with("Steam installation not found (Steam is installed as a "), "{e}");
+            assert!(e.contains(kind.name()) && e.contains("install the native Steam"), "{e}");
+        }
     }
 
     /// Steam saves its default as the tool's internal name: Valve's numbered builds are
