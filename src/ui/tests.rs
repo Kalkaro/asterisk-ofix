@@ -9,7 +9,7 @@ use crate::art::fake;
 use crate::config::Config;
 use crate::launch::{LaunchSpec, OnExit};
 use crate::paths::Paths;
-use crate::testutil::{TempDir, add_game, inno_installer, tempdir};
+use crate::testutil::{TempDir, add_custom_proton, add_game, fake_steam, inno_installer, set_default_proton, tempdir};
 use rune::{ElementInfo, Env, Key, KeyEvent, Mods, Runtime};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -188,7 +188,7 @@ impl FakeLaunch {
         let record = fake.clone();
         let logs = ui.home.path().join("fake-logs");
         ui.rt.state.steam_running = || true;
-        ui.rt.state.launcher = Some(Box::new(move |spec: &LaunchSpec, on_exit: OnExit| {
+        ui.rt.state.launcher_override = Some(Box::new(move |spec: &LaunchSpec, on_exit: OnExit| {
             let mut r = record.0.borrow_mut();
             r.0.push(spec.clone());
             r.1 = Some(on_exit);
@@ -878,6 +878,72 @@ fn reload_icon_turns_once_per_press() {
     assert_eq!(ui.rect("rescan")[2], 24.0, "the button doesn't change size");
 }
 
+/// The Proton builds an open page's dropdown lists.
+fn proton_menu(ui: &mut Ui) -> Vec<String> {
+    ui.click("proton-trigger");
+    ui.settle();
+    let names = (0..).map_while(|i| ui.find(&format!("proton-option{i}")).and_then(|e| e.label)).collect();
+    ui.key(Key::Escape);
+    ui.settle();
+    names
+}
+
+/// Steam installed, a Proton build added and Steam's default changed while asterofix is open
+/// all show on reload, without a restart, in an open page's Proton dropdown too. Games then
+/// start with them. A test's fake launcher stays: finding Steam never puts the real launcher
+/// back over it.
+#[test]
+fn reload_finds_steam_and_proton_again() {
+    let mut ui = Ui::new(&[("Pong", 0)]);
+    let fl = FakeLaunch::install(&mut ui);
+    assert!(ui.rt.state.steam.is_none() && ui.toast().contains("Steam installation not found"));
+    let root = fake_steam(ui.home.path(), &["Proton 9.0", "Proton 10.0"], "proton_9");
+    ui.click("rescan");
+    ui.settle();
+    let steam = ui.rt.state.steam.clone().expect("Steam is found on reload");
+    assert_eq!(steam.root, std::fs::canonicalize(&root).unwrap());
+    let names: Vec<_> = ui.rt.state.protons.iter().map(|p| p.name.clone()).collect();
+    assert_eq!(names, ["Proton 10.0", "Proton 9.0"]);
+    assert_eq!(ui.rt.state.default_proton, "Proton 9.0");
+
+    let pong = ui.game("Pong");
+    ui.rt.update(move |s, _| {
+        s.open_page(&pong);
+        s.options_open = true;
+    });
+    ui.settle();
+    assert_eq!(proton_menu(&mut ui), ["Proton 10.0", "Proton 9.0"]);
+
+    // GE-Proton installed, and made Steam's default, with the page open.
+    add_custom_proton(&root, "GE-Proton10-4");
+    set_default_proton(&root, "GE-Proton10-4");
+    ui.click("rescan");
+    ui.settle();
+    assert_eq!(proton_menu(&mut ui), ["GE-Proton10-4", "Proton 10.0", "Proton 9.0"]);
+    assert_eq!(ui.rt.state.default_proton, "GE-Proton10-4");
+    let log = std::fs::read_to_string(ui.rt.state.log.path()).unwrap();
+    assert!(log.contains("Proton: GE-Proton10-4 (default), Proton 10.0, Proton 9.0"), "{log}");
+
+    ui.click("page-play");
+    assert_eq!(fl.count(), 1, "the fake launcher still starts games");
+    assert_eq!(fl.0.borrow().0[0].proton.name, "GE-Proton10-4");
+}
+
+/// Play with no Steam known looks for it again before saying it's missing: Steam installed
+/// since asterofix started is used at once.
+#[test]
+fn play_looks_for_steam_again() {
+    let mut ui = Ui::new(&[("Pong", 0)]);
+    let fl = FakeLaunch::install(&mut ui);
+    assert!(ui.rt.state.steam.is_none());
+    fake_steam(ui.home.path(), &["Proton 9.0"], "proton_9");
+    let pong = ui.game("Pong");
+    ui.rt.update(move |s, _| s.play(&pong));
+    assert!(ui.rt.state.steam.is_some(), "Play found Steam");
+    assert_eq!(fl.count(), 1);
+    assert_eq!(fl.0.borrow().0[0].proton.name, "Proton 9.0");
+}
+
 /// A menu is coloured like what it opens from: the language menu like the header's buttons
 /// (the reload button among them, which had no fill at all), and the Proton and executable
 /// menus like their open fields. They were a lighter, bluer grey than either.
@@ -1475,12 +1541,12 @@ fn add_folder_asks_for_a_folder_and_scans_it() {
 }
 
 impl Ui {
-    /// Gives the app one Proton build, its default, as a fake Steam would.
+    /// Installs a fake Steam with one Proton build, its default, and has the app find it.
     fn with_proton(&mut self) {
-        self.rt.update(|s, _| {
-            s.protons = vec![crate::steam::Proton { name: "GE".into(), dir: "/p".into(), runtime: None }];
-            s.default_proton = "GE".into();
-        });
+        let root = fake_steam(self.home.path(), &[], "GE");
+        add_custom_proton(&root, "GE");
+        self.rt.update(|s, _| s.detect_steam(false));
+        assert_eq!(self.rt.state.default_proton, "GE");
     }
 
     /// A repack's setup.exe in ~/Downloads and its fix beside the folder, as they download.

@@ -34,7 +34,7 @@ pub const MIN_WINDOW: (f32, f32) = (540.0, 420.0);
 /// Rune's double-click interval off macOS and Windows, in seconds.
 pub const DOUBLE_CLICK: f64 = 0.5;
 
-/// Starts a game, returning its log file. Swapped out in tests.
+/// Starts a game, returning its log file. Tests start games with a fake one.
 pub type Launcher = Box<dyn Fn(&LaunchSpec, OnExit) -> Result<PathBuf, String>>;
 
 /// Stops the game in a folder, returning how many processes it found. Swapped out in tests.
@@ -120,7 +120,10 @@ pub struct App {
     pub now: f64,
     pub background: Background,
 
-    pub launcher: Option<Launcher>,
+    /// Starts games in Steam's place when set: tests put a fake launcher here. Unset, games
+    /// start through the Steam found last (`App::launch`), so finding Steam again never puts the
+    /// real launcher back over a fake (`reload_finds_steam_and_proton_again`).
+    pub launcher_override: Option<Launcher>,
     pub stopper: Stopper,
     pub deleter: Deleter,
     pub steam_running: fn() -> bool,
@@ -187,28 +190,16 @@ struct Inbox {
 impl App {
     /// `system` is the language the UI starts in until one is picked (`Lang::detect`).
     pub fn new(paths: Paths, endpoints: Endpoints, system: Lang) -> App {
-        let steam = steam::detect(&paths.home);
-        let protons = steam.as_ref().map(Steam::protons).unwrap_or_default();
-        let default_proton = steam.as_ref().map(|s| s.default_proton(&protons)).unwrap_or_default();
-        let launcher: Option<Launcher> = steam.clone().map(|steam| {
-            let paths = paths.clone();
-            Box::new(move |spec: &LaunchSpec, on_exit: OnExit| steam.launch(&paths, spec, on_exit)) as Launcher
-        });
         let (cfg, cfg_warning) = Config::open(&paths);
         let lang = Lang::from_code(&cfg.language).unwrap_or(system);
         let log = Arc::new(AppLog::open(&paths));
         log.line(format!("asterofix {VERSION} started"));
-        match &steam {
-            Some(steam) => log.line(format!("Steam: {}", steam.root.display())),
-            None => log.line("Steam: not found"),
-        }
-        log.line(format!("Proton: {}", proton_summary(&protons, &default_proton)));
         let mut app = App {
             log,
             host: Host::default(),
             last_launched: None,
             cfg,
-            art: ArtStore::new(&paths, steam.as_ref().map(|s| s.root.as_path()), endpoints),
+            art: ArtStore::new(&paths, None, endpoints),
             images: HashMap::new(),
             image_cache: None,
             waker: Arc::default(),
@@ -242,15 +233,16 @@ impl App {
             lang,
             now: 0.0,
             background: Background::new(),
-            launcher,
+            launcher_override: None,
             stopper: Box::new(stop_game),
             deleter: Arc::new(crate::uninstall::delete),
             steam_running: steam::steam_running,
             paths,
-            steam,
-            protons,
-            default_proton,
+            steam: None,
+            protons: Vec::new(),
+            default_proton: String::new(),
         };
+        app.detect_steam(true);
         if app.steam.is_none() {
             app.set_status(app.t().no_steam);
         }
@@ -423,10 +415,55 @@ impl App {
         first_non_empty(&self.art.get(g.real_id).name, &g.name).to_owned()
     }
 
-    /// The reload button: rescans, and turns its icon once.
+    /// The reload button: looks for Steam and its Proton builds again, rescans, and turns its
+    /// icon once.
     pub fn reload(&mut self) {
         self.reload_turns = self.reload_turns.wrapping_add(1);
+        self.detect_steam(false);
+        if self.steam.is_none() {
+            self.set_status(self.t().no_steam);
+        }
         self.rescan();
+    }
+
+    /// Finds Steam, its Proton builds and its default tool, and logs them when they changed
+    /// (or `always`). Steam installed, a Proton build added or Steam's default changed while
+    /// asterofix is open show up without a restart.
+    fn detect_steam(&mut self, always: bool) {
+        let steam = steam::detect(&self.paths.home);
+        let protons = steam.as_ref().map(Steam::protons).unwrap_or_default();
+        let default_proton = steam.as_ref().map(|s| s.default_proton(&protons)).unwrap_or_default();
+        let root = |s: &Option<Steam>| s.as_ref().map(|s| s.root.clone());
+        if always || root(&steam) != root(&self.steam) {
+            match &steam {
+                Some(steam) => self.log.line(format!("Steam: {}", steam.root.display())),
+                None => self.log.line("Steam: not found"),
+            }
+        }
+        if always || protons != self.protons || default_proton != self.default_proton {
+            self.log.line(format!("Proton: {}", proton_summary(&protons, &default_proton)));
+        }
+        // Its library cache has artwork; what's loaded already stays.
+        self.art.set_steam_root(steam.as_ref().map(|s| s.root.as_path()));
+        (self.steam, self.protons, self.default_proton) = (steam, protons, default_proton);
+    }
+
+    /// Whether games can start: Steam is known, looked for again if it wasn't (or a test's
+    /// launcher stands in for it).
+    fn can_launch(&mut self) -> bool {
+        if self.steam.is_none() {
+            self.detect_steam(false);
+        }
+        self.steam.is_some() || self.launcher_override.is_some()
+    }
+
+    /// Starts `spec` through Steam, or the launcher standing in for it.
+    fn launch(&self, spec: &LaunchSpec, on_exit: OnExit) -> Result<PathBuf, String> {
+        match (&self.launcher_override, &self.steam) {
+            (Some(launcher), _) => launcher(spec, on_exit),
+            (None, Some(steam)) => steam.launch(&self.paths, spec, on_exit),
+            (None, None) => Err("Steam installation not found".into()),
+        }
     }
 
     pub fn rescan(&mut self) {
@@ -650,9 +687,9 @@ impl App {
         if self.uninstalling.contains(root) {
             return self.set_status(fill(t.uninstalling, &[&self.display_name(&g)]));
         }
-        let Some(launcher) = &self.launcher else {
+        if !self.can_launch() {
             return self.set_status(t.no_steam);
-        };
+        }
         let spec = match self.spec_for(&g) {
             Ok(spec) => spec,
             Err(e) => return self.set_status(e),
@@ -677,7 +714,7 @@ impl App {
             spec.prefix.display()
         );
         self.log.line(line);
-        match launcher(&spec, on_exit) {
+        match self.launch(&spec, on_exit) {
             Ok(log) => {
                 self.log.line(format!("{}'s log: {}", spec.name, log.display()));
                 self.logs.insert(g.root.clone(), log);
@@ -853,7 +890,7 @@ impl App {
         if let Some(name) = &self.removing {
             return self.set_status(fill(t.still_removing, &[name]));
         }
-        if self.launcher.is_none() {
+        if !self.can_launch() {
             return self.set_status(t.no_steam);
         }
         match crate::install::plan(&self.paths, &files) {
@@ -913,7 +950,7 @@ impl App {
     /// Starts the current installer of the game being installed.
     fn run_install_step(&mut self) {
         let t = self.t();
-        let (Some((plan, step)), Some(launcher)) = (&self.installing, &self.launcher) else { return };
+        let Some((plan, step)) = &self.installing else { return };
         let Some(proton) = self.protons.iter().find(|p| p.name == self.default_proton) else {
             self.end_install();
             return self.set_status(fill(t.install_failed, &[&t.no_proton]));
@@ -926,7 +963,7 @@ impl App {
         });
         let exe = plan.steps[*step].exe.display();
         self.log.line(format!("Installing {} into {}: {exe} with {}", plan.name, plan.dest.display(), proton.name));
-        match launcher(&spec, on_exit) {
+        match self.launch(&spec, on_exit) {
             // The progress toast shows from here until `end_install`.
             Ok(log) => self.log.line(format!("The installer's log: {}", log.display())),
             Err(e) => {

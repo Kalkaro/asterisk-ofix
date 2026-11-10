@@ -72,7 +72,10 @@ nix-shell -p 'python3.withPackages (p: [p.fonttools p.uharfbuzz])' --run \
 
 - `src/ui/mod.rs`: `App`, all UI state and actions (scan, sort, search, open a game's page,
   edit and save settings, play, toasts, file pickers). Work finished on other threads
-  (artwork, games exiting) goes into an inbox that `poll` drains on the UI thread.
+  (artwork, games exiting) goes into an inbox that `poll` drains on the UI thread. Reload
+  finds Steam, its Proton builds and its default again (`detect_steam`), and so does Play
+  when no Steam is known. Games and installers start through `App::launch`, with the Steam
+  found last; tests' fakes go in `launcher_override`, which nothing else sets.
 - `src/ui/view.rs`: the view. The starfield, the header, the card grid, the game page and
   the toast. A single click on a card opens the game's page right away, in the grid's
   place: its cover (which flies there from the card, `matched`), name, Play, Folder, Log,

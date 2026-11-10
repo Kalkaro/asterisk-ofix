@@ -47,7 +47,8 @@ impl Default for Endpoints {
 pub struct ArtStore(Arc<Inner>);
 
 struct Inner {
-    steam_root: Option<PathBuf>,
+    /// Where Steam keeps its library cache; Steam may be found after the store is made.
+    steam_root: Mutex<Option<PathBuf>>,
     cache: PathBuf,
     endpoints: Endpoints,
     art: Mutex<HashMap<u32, Art>>,
@@ -62,12 +63,26 @@ pub fn has_art(id: u32) -> bool {
 impl ArtStore {
     pub fn new(paths: &Paths, steam_root: Option<&Path>, endpoints: Endpoints) -> ArtStore {
         ArtStore(Arc::new(Inner {
-            steam_root: steam_root.map(Path::to_path_buf),
+            steam_root: Mutex::new(steam_root.map(Path::to_path_buf)),
             cache: paths.cache_dir().join("art"),
             endpoints,
             art: Mutex::default(),
             requested: Mutex::default(),
         }))
+    }
+
+    /// Points the store at the Steam found now (or none). Art loaded already stays; apps whose
+    /// art isn't complete are asked for again, so the next `load` looks in that Steam's
+    /// library cache.
+    pub fn set_steam_root(&self, root: Option<&Path>) {
+        let root = root.map(Path::to_path_buf);
+        let mut current = lock(&self.0.steam_root);
+        if *current == root {
+            return;
+        }
+        *current = root;
+        let art = lock(&self.0.art);
+        lock(&self.0.requested).retain(|id| art.get(id).is_some_and(Art::is_complete));
     }
 
     /// What's loaded so far for `id`.
@@ -133,7 +148,14 @@ impl Inner {
     fn fetch(&self, ids: &[u32], done: &dyn Fn(u32)) {
         let mut missing = Vec::new();
         for &id in ids {
-            let art = self.load_local(id);
+            // Asked again (Steam was found since), what was loaded before stays.
+            let mut art = lock(&self.art).get(&id).cloned().unwrap_or_default();
+            let local = self.load_local(id);
+            if art.name.is_empty() {
+                art.name = local.name;
+            }
+            art.hero = art.hero.or(local.hero);
+            art.cover = art.cover.or(local.cover);
             if !art.is_complete() {
                 missing.push(id);
             }
@@ -240,9 +262,10 @@ impl Inner {
     }
 
     fn load_local(&self, id: u32) -> Art {
+        let steam_root = lock(&self.steam_root).clone();
         let find = |kind: &str, steam_name: &str| {
             let mut paths = vec![self.path(id, &format!("{kind}.jpg"))];
-            if let Some(root) = &self.steam_root {
+            if let Some(root) = &steam_root {
                 let lc = root.join("appcache/librarycache");
                 paths.push(lc.join(id.to_string()).join(steam_name));
                 paths.push(lc.join(format!("{id}_{steam_name}")));
@@ -556,6 +579,35 @@ mod tests {
         let store = ArtStore::new(&Paths::under(home.path()), None, offline);
         store.load(&[1000001], |_| {}).expect("a fetch").join().unwrap();
         assert!(store.load(&[1000001], |_| {}).is_some(), "asked again after the store was unreachable");
+    }
+
+    /// Steam installed while asterofix is open: once the store is pointed at it, the next load
+    /// looks in its library cache, though the Steam store answered for the app already, and
+    /// what was loaded before stays.
+    #[test]
+    fn a_steam_found_later_is_looked_in() {
+        let home = tempdir();
+        let paths = Paths::under(home.path());
+        crate::testutil::write(&paths.cache_dir().join("art/77_name.txt"), "Old Game\n");
+        let cover = paths.cache_dir().join("art/77_cover.jpg");
+        crate::testutil::write(&cover, fake::jpeg(600, 900));
+        let steam = fake::start(&[]);
+        let store = ArtStore::new(&paths, None, steam.endpoints.clone());
+        store.load(&[77], |_| {}).expect("a fetch").join().unwrap();
+        assert!(store.get(77).cover.is_some() && store.get(77).hero.is_none());
+        assert!(store.load(&[77], |_| {}).is_none(), "asked for once");
+
+        std::fs::remove_file(&cover).unwrap();
+        let root = home.path().join(".local/share/Steam");
+        crate::testutil::write(&root.join("appcache/librarycache/77/library_hero.jpg"), fake::jpeg(1920, 620));
+        store.set_steam_root(Some(&root));
+        store.load(&[77], |_| {}).expect("asked again with Steam found").join().unwrap();
+        let art = store.get(77);
+        assert!(art.hero.is_some(), "the hero from Steam's library cache");
+        assert!(art.cover.is_some(), "the cover loaded before stays");
+        assert_eq!(art.name, "Old Game");
+        store.set_steam_root(Some(&root));
+        assert!(store.load(&[77], |_| {}).is_none(), "the same Steam again asks nothing new");
     }
 
     #[test]
