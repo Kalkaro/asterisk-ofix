@@ -1080,6 +1080,8 @@ fn picker_menu_lines_up_with_its_field() {
 fn prefix_menu_lists_the_prefixes_there_are() {
     use crate::prefixes::{fake_prefix, prefixes_dir};
     let mut ui = Ui::new(&[("Pong", 0)]);
+    // Tall enough for the menu under the field, below the page's other options.
+    ui.resize(SIZE.0, 1000.0);
     let (root, paths) = (ui.game("Pong"), ui.paths());
     fake_prefix(&paths, "Pong", Some(&root), 100);
     let old = fake_prefix(&paths, "Pong_v1.0", Some(&ui.game("Pong v1.0")), 100);
@@ -1138,6 +1140,40 @@ fn prefix_menu_lists_the_prefixes_there_are() {
     ui.type_text("/elsewhere/pfx");
     assert_eq!(Config::load(&paths).settings(&root).prefix, "/elsewhere/pfx");
     assert!(prefixes_dir(&paths).join("Pong").is_dir(), "no prefix is ever moved or removed");
+}
+
+/// A game whose folder was renamed ("Pong v1.0" updated to "Pong v1.1") never ran in its own
+/// prefix: its page offers the old one's saves. Use them points the game at it; the cross
+/// stops asking for good.
+#[test]
+fn a_renamed_folder_is_offered_its_old_saves() {
+    use crate::prefixes::fake_prefix;
+    let mut ui = Ui::new(&[("Pong v1.1", 0), ("Hatch", 0)]);
+    let (root, paths) = (ui.game("Pong v1.1"), ui.paths());
+    let old = fake_prefix(&paths, "Pong_v1.0", Some(&root.with_file_name("Pong v1.0")), 100);
+    let open = root.clone();
+    ui.rt.update(move |s, _| s.open_page(&open));
+    ui.settle();
+    assert_eq!(ui.text("old-saves-text"), "Saves from \u{201c}Pong v1.0\u{201d} were found.");
+    ui.click("use-old-saves");
+    ui.settle();
+    assert_eq!(Config::load(&paths).settings(&root).prefix, old.to_string_lossy());
+    assert!(ui.find("old-saves").is_none(), "gone once the game has a prefix chosen");
+    assert!(old.join("pfx").is_dir(), "nothing is moved");
+
+    // Turned down, it never comes back for that game.
+    ui.rt.update(|s, _| s.edit(|g, _| g.prefix.clear()));
+    ui.settle();
+    assert!(ui.find("old-saves").is_some());
+    ui.click("hide-old-saves");
+    ui.settle();
+    assert!(ui.find("old-saves").is_none() && Config::load(&paths).settings(&root).hide_old_saves);
+
+    // Another game is never offered them.
+    let hatch = ui.game("Hatch");
+    ui.rt.update(move |s, _| s.open_page(&hatch));
+    ui.settle();
+    assert!(ui.find("old-saves").is_none());
 }
 
 /// Cards keep one size while the window resizes; only the column count changes. Stretching

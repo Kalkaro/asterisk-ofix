@@ -29,6 +29,9 @@ snap options --scene options --size 1080x720
 snap proton-menu --scene proton-menu --size 1080x720
 snap prefix-menu --scene prefix-menu --size 1080x720
 snap prefix-menu-narrow --scene prefix-menu --size 600x960
+snap old-saves --scene old-saves --size 1080x720
+snap old-saves-narrow --scene old-saves --size 600x600
+LANG=fr_FR.UTF-8 snap old-saves-fr --scene old-saves --size 1080x720
 snap search --scene search --size 1080x720
 snap no-matches --scene no-matches --size 1080x720
 snap toast --scene toast --size 1080x720

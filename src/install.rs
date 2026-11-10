@@ -214,6 +214,19 @@ pub fn game_name(exe: &Path) -> String {
     if name.is_empty() { clean_name(&folder) } else { name }
 }
 
+/// Whether two folder names name the same game once their versions, repackers and fix words
+/// are gone, whatever their case: "Lucid Cats v1.0" and "Lucid Cats v1.1 by Pioneer".
+pub fn same_game(a: &str, b: &str) -> bool {
+    let (a, b) = (clean_name(a), clean_name(b));
+    !a.is_empty() && a.to_lowercase() == b.to_lowercase()
+}
+
+/// `same_game`, with the names left exactly the same, case and all.
+pub fn same_game_exactly(a: &str, b: &str) -> bool {
+    let a = clean_name(a);
+    !a.is_empty() && a == clean_name(b)
+}
+
 /// A file name without its version, repacker and fix words.
 fn clean_name(source: &str) -> String {
     let mut words = words(source);
@@ -321,6 +334,18 @@ mod tests {
         ] {
             assert_eq!(game_name(Path::new(path)), want, "{path}");
         }
+    }
+
+    #[test]
+    fn tells_versions_of_one_game_from_other_games() {
+        assert!(same_game("Lucid Cats v1.0", "Lucid Cats v1.1 by Pioneer"));
+        assert!(same_game("Hollow Knight [FitGirl Repack]", "hollow knight"));
+        assert!(same_game("Big_Walk_Build_12345", "Big Walk Build 12399"));
+        assert!(!same_game("Portal 2", "Portal"), "a number alone is part of the name");
+        assert!(!same_game("Pong Deluxe v1", "Pong v1"));
+        assert!(!same_game("v1.0", "v2.0"), "nothing left to compare");
+        assert!(same_game_exactly("Pong_v1.0", "Pong_v2"));
+        assert!(!same_game_exactly("pong_v1.0", "Pong_v2"));
     }
 
     #[test]

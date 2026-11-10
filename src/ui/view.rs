@@ -98,6 +98,13 @@ pub const SCENES: &[Scene] = &[
             s.open_select = Some("prefix");
         }
     }),
+    // Pong's folder was "Pong v1.0" until an update: its saves are offered.
+    ("old-saves", |s| {
+        let pong = s.games.iter().find(|g| g.name == "Pong").map(|g| g.root.clone());
+        if let Some(root) = pong {
+            s.open_page(&root)
+        }
+    }),
     ("search", |s| {
         s.search = rune::TextEdit::new("game");
         s.search_open = true;
@@ -757,6 +764,7 @@ fn game_page(s: &App, k: &Kit, g: &Game, width: f32, layer: &mut Vec<El>) -> El 
         .child(text(name).key("title").font(GAME_TITLE).color(TEXT).wrap())
         .child(text(meta.join("  ·  ")).key("meta").font(BODY).color(MUTED).wrap())
         .child(actions.mt(20.0))
+        .children(old_saves_notice(s, k, g))
         .child(el().w_full().h(1.0).fill(BORDER).mt(22.0).mb(4.0))
         .child(options_toggle(t, s.options_open))
         .children(s.options_open.then(|| launch_options(s, k, g, spec.as_ref(), info_w, layer)));
@@ -794,6 +802,52 @@ fn game_page(s: &App, k: &Kit, g: &Game, width: f32, layer: &mut Vec<El>) -> El 
                 .scroll(ScrollSpec { stick_bottom: false })
                 .scroll_edge_fade(18.0),
         )
+}
+
+/// A quiet line under Play when the game has never run in its own prefix and an old one looks
+/// like it holds its saves (its folder was renamed, as an updated repack's is): Use them points
+/// the game at that prefix, and the cross stops asking for this game. Nothing shows once the
+/// game has a prefix chosen.
+fn old_saves_notice(s: &App, k: &Kit, g: &Game) -> Option<El> {
+    let t = s.t();
+    let settings = s.cfg.settings(&g.root);
+    let old = s.old_saves.first().filter(|_| settings.prefix.is_empty() && !settings.hide_old_saves)?;
+    let name = crate::prefixes::old_name(old);
+    let message = match s.old_saves.len() {
+        1 => fill(t.old_saves_found, &[&name]),
+        n => fill(t.old_saves_found_latest, &[&name, &n]),
+    };
+    Some(
+        row()
+            .key("old-saves")
+            .w_full()
+            .mt(14.0)
+            .pl(12.0)
+            .pr(6.0)
+            .py(6.0)
+            .gap(8.0)
+            .center_y()
+            .radius(10.0)
+            .border(1.0, BORDER)
+            .transition(Transition::opacity().combined(Transition::offset(0.0, -4.0)).springs(FADE))
+            .child(text(message).key("old-saves-text").font(BODY).color(MUTED).wrap().grow(1.0).shrink().min_w(0.0))
+            .child(
+                Button::new(t.use_old_saves)
+                    .variant(ButtonVariant::Neutral)
+                    .on_press(App::use_old_saves)
+                    .build(k)
+                    .key("use-old-saves"),
+            )
+            .child(
+                IconButton::new(k.glyph.close)
+                    .label(t.hide_old_saves)
+                    .help(t.hide_old_saves)
+                    .variant(IconButtonVariant::Ghost)
+                    .on_press(App::hide_old_saves)
+                    .build(k)
+                    .key("hide-old-saves"),
+            ),
+    )
 }
 
 /// How many of the page's Folder, Log, Copy command and Uninstall (`labels`) keep their labels
@@ -969,9 +1023,8 @@ fn prefix_field(s: &App, k: &Kit, spec: Option<&LaunchSpec>, d: &LaunchSpec, wid
         let (names, details): (Vec<String>, Vec<Option<String>>) = own.into_iter().chain(others).unzip();
         let current = spec.map(|sp| &sp.prefix).filter(|p| p.parent() == Some(dir.as_path()));
         let current = current.map(|p| crate::scan::file_name(p));
-        let detail = |i: usize| {
-            details[i].clone().map(|d| text(d).key("owner").font(CAPTION).color(MUTED).truncate().shrink())
-        };
+        let detail =
+            |i: usize| details[i].clone().map(|d| text(d).key("owner").font(CAPTION).color(MUTED).truncate().shrink());
         let menu = Menu { key: KEY, label: t.wine_prefix, width, rows: Menu::ROWS, fill: open_field_fill(k) };
         menu.build(k, &names, current.as_deref(), App::choose_prefix, &|_| None, &detail, layer);
     }

@@ -112,6 +112,9 @@ pub struct App {
     /// The prefixes there are, for the Prefix field's menu: read when a page or that menu
     /// opens, never per frame.
     pub prefixes: Vec<Prefix>,
+    /// Old prefixes that may hold the open game's saves from before its folder was renamed,
+    /// the most recently played first (`prefixes::old_saves`). Read with `prefixes`.
+    pub old_saves: Vec<Prefix>,
     /// The open dropdown on the page.
     pub open_select: Option<&'static str>,
     /// How many times the reload button was pressed: its icon turns once for each.
@@ -233,6 +236,7 @@ impl App {
             uninstalling: HashSet::new(),
             form: Form::default(),
             prefixes: Vec::new(),
+            old_saves: Vec::new(),
             open_select: None,
             reload_turns: 0,
             hero_id: None,
@@ -640,6 +644,38 @@ impl App {
     /// Reads which prefixes there are, while a page is open.
     fn load_prefixes(&mut self) {
         self.prefixes = if self.selected.is_some() { crate::prefixes::list(&self.paths) } else { Vec::new() };
+        self.old_saves = match self.current() {
+            Some(g) => {
+                // Every other game's prefix, whether its own or one it was pointed at.
+                let others = self.games.iter().filter(|o| o.root != g.root);
+                let taken: Vec<PathBuf> = others
+                    .flat_map(|o| {
+                        let chosen = Some(self.cfg.settings(&o.root).prefix).filter(|p| !p.is_empty());
+                        [Some(default_prefix(&self.paths, &o.root)), chosen.map(PathBuf::from)]
+                    })
+                    .flatten()
+                    .collect();
+                crate::prefixes::old_saves(&self.paths, &self.prefixes, &g.root, &taken).into_iter().cloned().collect()
+            }
+            None => Vec::new(),
+        };
+    }
+
+    /// The page's notice about old saves: the game starts in the most recently played of the
+    /// prefixes they were found in from now on.
+    pub fn use_old_saves(&mut self) {
+        let (Some(old), Some(g)) = (self.old_saves.first().cloned(), self.current().cloned()) else { return };
+        let path = old.path.to_string_lossy().into_owned();
+        self.edit(|s, _| s.prefix = path.clone());
+        self.form.prefix = TextEdit::new(path);
+        self.log.line(format!("{} uses the prefix {}", g.root.display(), old.path.display()));
+        let t = self.t();
+        self.set_status(fill(t.using_old_saves, &[&self.display_name(&g), &crate::prefixes::old_name(&old)]));
+    }
+
+    /// The notice's close button: those saves aren't this game's, and it never asks again.
+    pub fn hide_old_saves(&mut self) {
+        self.edit(|s, _| s.hide_old_saves = true);
     }
 
     /// Changes the open game's settings and saves them.
@@ -764,6 +800,8 @@ impl App {
                 self.logs.insert(g.root.clone(), log);
                 self.running.insert(g.root.clone());
                 self.last_launched = Some(g.root.clone());
+                // It has a prefix of its own now, so saves found elsewhere aren't offered.
+                self.load_prefixes();
                 self.set_status(fill(t.launched, &[&spec.name, &spec.proton.name]));
             }
             Err(e) => self.set_status(fill(t.launch_failed, &[&e])),

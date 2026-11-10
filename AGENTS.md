@@ -47,8 +47,8 @@ nix develop -c scripts/preview.sh /some/dir
 ```
 
 This renders `library.png`, `library-narrow.png`, `hover.png`, `page.png`,
-`page-narrow.png`, `options.png`, `proton-menu.png`, `prefix-menu.png`, `prefix-menu-narrow.png`, `search.png`, `no-matches.png`, `toast.png`, `running.png`,
-`language-menu.png`, `install.png`, `install-narrow.png`, `install-progress.png`, `uninstall.png`, `uninstall-narrow.png`, and in other languages `page-ru.png`, `library-ru-narrow.png`, `page-ja.png` and `page-fr.png` headlessly (Rune's
+`page-narrow.png`, `options.png`, `proton-menu.png`, `prefix-menu.png`, `prefix-menu-narrow.png`, `old-saves.png`, `old-saves-narrow.png`, `search.png`, `no-matches.png`, `toast.png`, `running.png`,
+`language-menu.png`, `install.png`, `install-narrow.png`, `install-progress.png`, `uninstall.png`, `uninstall-narrow.png`, and in other languages `page-ru.png`, `library-ru-narrow.png`, `page-ja.png`, `page-fr.png` and `old-saves-fr.png` headlessly (Rune's
 `--snap`, with the scenes in `view::SCENES`) from a made-up demo library:
 `scripts/demo_home.py` builds a throwaway home with Pong and Game 1 to 4, black and white
 covers drawn like box art (a little scene each, no titles) already in the cache, and a fake Steam with a few Proton builds (Proton 9.0

@@ -25,6 +25,14 @@ pub struct GameSettings {
     pub args: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub prefix: String,
+    /// The game page stops offering saves found in an old prefix (`prefixes::old_saves`): the
+    /// user said they aren't this game's.
+    #[serde(skip_serializing_if = "is_false")]
+    pub hide_old_saves: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 impl GameSettings {
@@ -193,5 +201,16 @@ mod tests {
     fn empty_settings_are_left_out() {
         let json = serde_json::to_string(&GameSettings { env: "A=1".into(), ..Default::default() }).unwrap();
         assert_eq!(json, r#"{"env":"A=1"}"#);
+    }
+
+    /// Configs from before the notice about old saves load as offering them.
+    #[test]
+    fn dismissing_old_saves_is_remembered() {
+        let old: GameSettings = serde_json::from_str(r#"{"prefix":""}"#).unwrap();
+        assert!(!old.hide_old_saves);
+        let s = GameSettings { hide_old_saves: true, ..Default::default() };
+        let json = serde_json::to_string(&s).unwrap();
+        assert_eq!(json, r#"{"hide_old_saves":true}"#);
+        assert_eq!(serde_json::from_str::<GameSettings>(&json).unwrap(), s);
     }
 }
