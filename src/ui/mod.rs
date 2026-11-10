@@ -17,7 +17,7 @@ use crate::install::Plan;
 use crate::launch::{LaunchSpec, OnExit, build_spec, default_prefix, first_non_empty, stop_game};
 use crate::paths::Paths;
 use crate::prefixes::Prefix;
-use crate::scan::{Game, game_from_exe, scan_libraries};
+use crate::scan::{Game, detect_game, file_name, game_from_exe, scan_libraries};
 use crate::steam::{self, Proton, Steam};
 use i18n::{Lang, Strings, fill};
 use rune::{AppSpec, FileDialogOptions, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker};
@@ -993,10 +993,22 @@ impl App {
     pub fn add_folder(&mut self, tx: &mut Tx) {
         let options = FileDialogOptions { title: self.t().add_folder_title.into(), ..Default::default() };
         tx.open_folder(options, |s: &mut App, result, _| match result {
-            Ok(Some(dir)) => s.add_library(dir),
+            Ok(Some(dir)) => s.add_picked_folder(dir),
             Ok(None) => {}
             Err(e) => s.set_status(fill(s.t().folder_picker_failed, &[&e])),
         });
+    }
+
+    /// A folder of games joins the libraries. A game's own folder, picked instead of the one
+    /// it's in, adds that game, as its .exe would. A folder with neither isn't kept.
+    pub fn add_picked_folder(&mut self, dir: PathBuf) {
+        if !scan_libraries(std::slice::from_ref(&dir)).is_empty() {
+            return self.add_library(dir);
+        }
+        match detect_game(&dir).and_then(|g| g.exes.into_iter().next()) {
+            Some(exe) => self.add_manual_exe(exe),
+            None => self.set_status(fill(self.t().no_games_in_folder, &[&file_name(&dir)])),
+        }
     }
 
     /// Asks, off the UI thread, whether a newer release is out, for the AppImage only: Nix and

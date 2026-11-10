@@ -1898,6 +1898,36 @@ fn library_folders_are_listed_added_and_removed() {
     assert!(ui.rt.file_dialog().is_some());
 }
 
+/// Add folder on a game's own folder, rather than the folder of games it's in, adds that
+/// game and opens its page.
+#[test]
+fn add_folder_on_a_game_folder_adds_the_game() {
+    let mut ui = Ui::new(&[]);
+    let game = add_game(&ui.home.path().join("Downloads"), "Hatch", 0);
+    ui.click("empty-add-folder");
+    ui.rt.resolve_file_dialog(Some(game.clone())).unwrap();
+    ui.settle();
+    assert_eq!(ui.card_names(), ["Hatch"]);
+    assert_eq!(ui.rt.state.selected, Some(game.clone()));
+    let cfg = Config::load(&ui.paths());
+    assert!(!cfg.libraries.contains(&game));
+    assert_eq!(cfg.manual_exes, [game.join("Hatch.exe")]);
+}
+
+#[test]
+fn add_folder_without_games_says_so_and_keeps_nothing() {
+    let mut ui = Ui::new(&[]);
+    let empty = ui.home.path().join("Nothing Here");
+    std::fs::create_dir_all(&empty).unwrap();
+    ui.click("empty-add-folder");
+    ui.rt.resolve_file_dialog(Some(empty.clone())).unwrap();
+    ui.settle();
+    assert!(ui.card_names().is_empty());
+    let toast = ui.rt.state.toast.as_ref().map(|t| t.text.clone()).unwrap_or_default();
+    assert_eq!(toast, "No games with a Steam Fix / Online Fix found in \u{201c}Nothing Here\u{201d}");
+    assert!(!Config::load(&ui.paths()).libraries.contains(&empty));
+}
+
 impl Ui {
     /// Installs a fake Steam with one Proton build, its default, and has the app find it.
     fn with_proton(&mut self) {
