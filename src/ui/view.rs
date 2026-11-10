@@ -115,6 +115,27 @@ pub const SCENES: &[Scene] = &[
             })),
         });
     }),
+    // A repack halfway through installing.
+    ("install-progress", |s| {
+        let downloads = s.paths.home.join("Downloads");
+        let step = crate::install::Step {
+            exe: downloads.join("Pong v1.2 by Someone/setup.exe"),
+            kind: crate::install::Kind::Inno,
+            is_fix: false,
+        };
+        let plan = crate::install::Plan {
+            name: "Pong".into(),
+            dest: s.paths.home.join(crate::install::INSTALL_DIR).join("Pong"),
+            steps: vec![step],
+            fresh: true,
+        };
+        s.installing = Some((plan, 0));
+        s.install_size = Some(12_400_000_000);
+        let t = s.t();
+        s.set_status(fill(t.already_installing, &[&"Pong"]));
+        s.search = rune::TextEdit::new("game");
+        s.search_open = true;
+    }),
     // The second game is running, with its page open.
     ("running", |s| {
         if let Some(root) = s.games.get(1).map(|g| g.root.clone()) {
@@ -143,6 +164,10 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     // nothing under it, or the cards it lies over light up (`cards_under_an_open_menu_are_not_hovered`).
     let content = if s.open_select.is_some() { content.inert() } else { content };
     install_dialog(s, &k, &mut layer);
+    // From the bottom: the search bar, the install's progress, then a toast.
+    let floor = if s.search_open { SEARCH_BOTTOM + SEARCH_H + 12.0 } else { 24.0 };
+    let progress = install_progress(s, &k, size[0], floor);
+    let toast_bottom = if progress.is_some() { floor + PROGRESS_H + 10.0 } else { floor };
     let app = el()
         .key("app")
         .w_full()
@@ -159,7 +184,8 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
         .children(hero(s, backdrop[0]))
         .child(content)
         .children(s.search_open.then(|| search_bar(s, &k, size[0])))
-        .children(s.toast.as_ref().map(|t| toast(&t.text, t.seq, size[0], s.search_open)));
+        .children(progress)
+        .children(s.toast.as_ref().map(|t| toast(&t.text, t.seq, size[0], toast_bottom)));
     rune_kit::root(app, layer).on_window_focus(|s: &mut App, focused, tx: &mut Tx| {
         // No point animating behind other windows; the clock picks up where it stopped.
         s.background.set_paused(!focused);
@@ -1157,10 +1183,93 @@ fn install_dialog(s: &App, k: &Kit, layer: &mut Vec<El>) {
         .build(k, layer);
 }
 
-/// A floating message at the bottom of the window.
-fn toast(message: &str, seq: u64, window_w: f32, above_search: bool) -> El {
-    // Rides above the search bar while it's open.
-    let bottom = if above_search { SEARCH_BOTTOM + SEARCH_H + 12.0 } else { 24.0 };
+/// The install's progress toast, and how tall it is.
+const PROGRESS_W: f32 = 440.0;
+pub const PROGRESS_H: f32 = 60.0;
+
+/// While a game installs, a toast that stays until it's done: what's being installed, how much
+/// it has written so far, a bar, and Cancel. The installer's total is inside its compressed
+/// data, so the bar can't fill: a segment slides along it, and the growing size shows it's
+/// alive. Other toasts sit above it.
+fn install_progress(s: &App, k: &Kit, window_w: f32, bottom: f32) -> Option<El> {
+    let (plan, step) = s.installing.as_ref()?;
+    let t = s.t();
+    let title = match () {
+        _ if s.install_cancelled => t.cancelling_install,
+        _ if plan.steps[*step].is_fix => t.installing_fix,
+        _ => t.installing,
+    };
+    let title = fill(title, &[&plan.name]);
+    let size = s.install_size.map(t.bytes).unwrap_or_default();
+    // A quarter of the track crosses it, then comes round from the left again.
+    let bar = el()
+        .key("install-bar")
+        .w_full()
+        .h(4.0)
+        .radius(2.0)
+        .fill(Color::WHITE.alpha(0.1))
+        .clip_rounded(2.0)
+        .role("progressbar")
+        .label(title.clone())
+        .child(
+            el().key("install-bar-fill")
+                .w_frac(0.25)
+                .h_full()
+                .radius(2.0)
+                .fill(TEXT)
+                .looping(rune::LoopSpec::slide(1.4, [-1.0, 0.0], [4.0, 0.0])),
+        );
+    let lines = col()
+        .grow(1.0)
+        .min_w(0.0)
+        .gap(10.0)
+        .child(
+            row()
+                .w_full()
+                .gap(10.0)
+                .center_y()
+                .child(text(title).key("install-progress-title").font(BODY).color(TEXT).truncate().grow(1.0).shrink())
+                .child(text(size).key("install-progress-size").font(CAPTION.features("'tnum' 1")).color(MUTED)),
+        )
+        .child(bar);
+    let cancel = Button::new(t.cancel)
+        .variant(ButtonVariant::Neutral)
+        .disabled(s.install_cancelled)
+        .on_press(App::cancel_install)
+        .build(k)
+        .key("install-progress-cancel");
+    // Even, like the row it's centred in, so it doesn't shimmer as the window resizes.
+    let w = (window_w - 2.0 * GUTTER - odd(window_w)).min(PROGRESS_W);
+    Some(
+        row()
+            .key("install-progress-row")
+            .pin(Some(GUTTER), None, Some(GUTTER + odd(window_w)), Some(bottom))
+            .motion(Spring::new(0.35, 0.1))
+            // On the row, which is what goes when the install ends.
+            .transition(Transition::offset(0.0, 12.0).combined(Transition::opacity()).springs(FADE))
+            .justify_center()
+            .child(
+                row()
+                    .key("install-progress")
+                    .w(w)
+                    .h(PROGRESS_H)
+                    .pl(16.0)
+                    .pr(12.0)
+                    .gap(16.0)
+                    .center_y()
+                    .radius(12.0)
+                    .fill(RAISED)
+                    .border(1.0, BORDER)
+                    .shadow(10.0, 30.0, Color::BLACK.alpha(0.6))
+                    .child(lines)
+                    .child(cancel),
+            ),
+    )
+}
+
+/// A floating message at the bottom of the window, `bottom` points up from its edge: above the
+/// search bar and the install's progress while they show.
+fn toast(message: &str, seq: u64, window_w: f32, bottom: f32) -> El {
     row()
         .key("toast-row")
         .pin(Some(GUTTER), None, Some(GUTTER + odd(window_w)), Some(bottom))

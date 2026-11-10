@@ -1343,12 +1343,12 @@ fn install_runs_the_games_installer_then_its_fix() {
     let spec = fl.0.borrow().0[0].clone();
     assert_eq!((&spec.exe, &spec.game_dir), (&setup, &dest));
     assert!(spec.args.contains("/VERYSILENT"), "{}", spec.args);
-    assert_eq!(ui.toast(), "Installing Lucid Cats\u{2026}");
+    assert_eq!(ui.text("install-progress-title"), "Installing Lucid Cats\u{2026}");
     // It stays up for as long as the installer takes.
     for _ in 0..(TOAST_SECS * 2.0 * 60.0) as usize {
         ui.rt.frame(1.0 / 60.0);
     }
-    assert_eq!(ui.toast(), "Installing Lucid Cats\u{2026}");
+    assert_eq!(ui.text("install-progress-title"), "Installing Lucid Cats\u{2026}");
     ui.click("install");
     ui.settle();
     assert!(ui.find("install-dialog").is_none() && ui.toast() == "Already installing Lucid Cats");
@@ -1358,11 +1358,13 @@ fn install_runs_the_games_installer_then_its_fix() {
     ui.settle();
     assert_eq!(fl.count(), 2, "the fix runs once the game's installer is done");
     assert_eq!(fl.0.borrow().0[1].exe, fix);
-    assert_eq!(ui.toast(), "Installing the online fix for Lucid Cats\u{2026}");
+    assert_eq!(ui.text("install-progress-title"), "Installing the online fix for Lucid Cats\u{2026}");
 
     fl.exit();
     ui.settle();
     assert_eq!(ui.toast(), "Installed Lucid Cats");
+    ui.settle();
+    assert!(ui.find("install-progress").is_none(), "the progress goes with the install");
     assert_eq!(ui.card_names(), ["Lucid Cats"], "a game in the new library, not one called asterofix");
     assert_eq!(ui.rt.state.selected.as_deref(), Some(dest.as_path()));
     assert!(Config::load(&ui.paths()).libraries.contains(&dest.parent().unwrap().to_path_buf()));
@@ -1476,6 +1478,37 @@ fn a_failed_install_can_be_tried_again() {
     ui.rt.update(move |s, _| s.start_install(files));
     ui.settle();
     assert_eq!(fl.count(), 3);
+}
+
+/// While a game installs, its progress shows how much it has written so far. Cancel stops the
+/// installer, no fix runs after it, and what it left is removed so installing again works.
+#[test]
+fn an_install_shows_its_progress_and_can_be_cancelled() {
+    let mut ui = Ui::new(&[]);
+    ui.with_proton();
+    let fl = FakeLaunch::install(&mut ui);
+    ui.rt.state.measure_every = std::time::Duration::from_millis(5);
+    let (setup, fix) = ui.downloads();
+    let dest = ui.home.path().join("Games/asterofix/Lucid Cats");
+    ui.rt.update(move |s, _| s.start_install(vec![setup, fix]));
+    ui.settle();
+    crate::testutil::write(&dest.join("data/part1.bin"), vec![0u8; 2_500_000]);
+    ui.wait_until("the size", |s| s.install_size == Some(2_500_000));
+    ui.settle();
+    assert_eq!(ui.text("install-progress-size"), "2.5 MB");
+
+    ui.click("install-progress-cancel");
+    ui.settle();
+    assert_eq!(fl.stops(), std::slice::from_ref(&dest), "the installer is stopped");
+    assert_eq!(ui.text("install-progress-title"), "Cancelling the install of Lucid Cats\u{2026}");
+    fl.killed();
+    ui.settle();
+    assert_eq!(ui.toast(), "Cancelled the install of Lucid Cats");
+    assert_eq!(fl.count(), 1, "the fix never runs");
+    ui.wait_until("the cleanup", |s| s.removing.is_none());
+    ui.settle();
+    assert!(!dest.exists() && ui.find("install-progress").is_none());
+    assert!(ui.rt.state.install_size.is_none() && !ui.rt.state.install_cancelled);
 }
 
 /// One relayout of a 40-game library at a new width (the app's share of a live resize) and

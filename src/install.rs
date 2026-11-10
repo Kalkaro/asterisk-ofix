@@ -275,6 +275,23 @@ fn dir_has_files(dir: &Path) -> bool {
     std::fs::read_dir(dir).is_ok_and(|mut rd| rd.next().is_some())
 }
 
+/// How much is in `dir` so far, in bytes: what an install has written. Symlinks count as
+/// themselves, so nothing outside is counted, and a file that vanishes midway counts as 0.
+pub fn dir_size(dir: &Path) -> u64 {
+    let mut total = 0;
+    let mut dirs = vec![dir.to_path_buf()];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            match entry.metadata() {
+                Ok(m) if m.is_dir() => dirs.push(entry.path()),
+                Ok(m) => total += m.len(),
+                Err(_) => {}
+            }
+        }
+    }
+    total
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -434,6 +451,20 @@ mod tests {
         let linked = fresh("Linked", install_dir.join("Linked"));
         assert!(linked.remove_partial(&paths, &|_| false).is_err());
         assert!(elsewhere.is_file() && install_dir.join("Linked").exists());
+    }
+
+    #[test]
+    fn measures_what_an_install_has_written() {
+        let home = tempdir();
+        let dest = home.path().join("Games/asterofix/Pong");
+        assert_eq!(dir_size(&dest), 0, "nothing yet");
+        write(&dest.join("Pong.exe"), [0u8; 1000]);
+        write(&dest.join("data/a/b.pak"), [0u8; 234]);
+        let elsewhere = home.path().join("big.bin");
+        write(&elsewhere, [0u8; 5000]);
+        std::os::unix::fs::symlink(home.path(), dest.join("data/loop")).unwrap();
+        let link = std::fs::symlink_metadata(dest.join("data/loop")).unwrap().len();
+        assert_eq!(dir_size(&dest), 1234 + link, "symlinks aren't followed");
     }
 
     #[test]

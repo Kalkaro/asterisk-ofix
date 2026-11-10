@@ -22,6 +22,7 @@ use i18n::{Lang, Strings, fill};
 use rune::{AppSpec, FileDialogOptions, Image, ImageCache, Key, KeyEvent, TextEdit, Tx, Waker};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -82,6 +83,16 @@ pub struct App {
     /// The game whose failed install's folder is being removed, off the UI thread. No other
     /// install starts until it's gone, so the removal can't reach a new one's files.
     pub removing: Option<String>,
+    /// How much the install has written so far, once measured.
+    pub install_size: Option<u64>,
+    /// Cancel was pressed: the installer's exit is reported as cancelled.
+    pub install_cancelled: bool,
+    /// Stops the thread measuring the install (`measure_install`); its sizes carry
+    /// `measure_id`, so one left over from an earlier install is dropped.
+    measuring: Option<Arc<AtomicBool>>,
+    measure_id: u64,
+    /// How often the install is measured. Shorter in tests.
+    pub measure_every: Duration,
     /// The Install popup, while it's open.
     pub install_form: Option<InstallForm>,
     pub form: Form,
@@ -145,6 +156,8 @@ struct Inbox {
     installs: Vec<Result<(), String>>,
     /// How removing a failed install's folder went (`App::remove_partial`).
     removed: Vec<Result<bool, String>>,
+    /// What the install has written so far, by the measuring thread's id.
+    sizes: Vec<(u64, u64)>,
 }
 
 impl App {
@@ -188,6 +201,11 @@ impl App {
             logs: HashMap::new(),
             installing: None,
             removing: None,
+            install_size: None,
+            install_cancelled: false,
+            measuring: None,
+            measure_id: 0,
+            measure_every: Duration::from_secs(1),
             install_form: None,
             form: Form::default(),
             open_select: None,
@@ -241,8 +259,14 @@ impl App {
     /// Picks up what other threads finished; true when anything visible changed.
     pub fn poll(&mut self, now: f64, _tx: &mut Tx) -> bool {
         self.now = now;
-        let Inbox { art, exits, installs, removed } = std::mem::take(&mut *lock(&self.inbox));
+        let Inbox { art, exits, installs, removed, sizes } = std::mem::take(&mut *lock(&self.inbox));
         let mut changed = !art.is_empty() || !exits.is_empty() || !installs.is_empty() || !removed.is_empty();
+        for (id, size) in sizes {
+            if self.measuring.is_some() && id == self.measure_id {
+                changed |= self.install_size != Some(size);
+                self.install_size = Some(size);
+            }
+        }
         for result in installs {
             self.install_step_done(result);
         }
@@ -782,6 +806,7 @@ impl App {
         }
         match crate::install::plan(&self.paths, &files) {
             Ok(plan) => {
+                self.measure_install(plan.dest.clone());
                 self.installing = Some((plan, 0));
                 self.run_install_step();
             }
@@ -789,12 +814,56 @@ impl App {
         }
     }
 
+    /// Measures what the install has written so far, about once a second, on another thread
+    /// until `end_install`. The installer's own total is inside its compressed data, so the
+    /// growing size is what shows it's alive.
+    fn measure_install(&mut self, dest: PathBuf) {
+        let stop = Arc::new(AtomicBool::new(false));
+        self.measure_id += 1;
+        self.measuring = Some(stop.clone());
+        let (id, every, inbox, wake) = (self.measure_id, self.measure_every, self.inbox.clone(), self.wake());
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                let size = crate::install::dir_size(&dest);
+                if stop.load(Ordering::Relaxed) {
+                    break;
+                }
+                lock(&inbox).sizes.push((id, size));
+                wake();
+                std::thread::sleep(every);
+            }
+        });
+    }
+
+    /// The install is over, however it ended: nothing is measured or cancelled any more.
+    fn end_install(&mut self) {
+        self.installing = None;
+        self.install_size = None;
+        self.install_cancelled = false;
+        if let Some(stop) = self.measuring.take() {
+            stop.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// The progress toast's Cancel: stops the installer's processes. Its exit is then reported
+    /// as cancelled, no later installer runs, and what the game's installer left is removed.
+    pub fn cancel_install(&mut self) {
+        let Some((plan, step)) = &self.installing else { return };
+        if self.install_cancelled {
+            return;
+        }
+        self.install_cancelled = true;
+        let found = (self.stopper)(&plan.dest);
+        let exe = crate::scan::file_name(&plan.steps[*step].exe);
+        self.log.line(format!("Cancelling the install of {}: stopping {exe}, {found} processes", plan.name));
+    }
+
     /// Starts the current installer of the game being installed.
     fn run_install_step(&mut self) {
         let t = self.t();
         let (Some((plan, step)), Some(launcher)) = (&self.installing, &self.launcher) else { return };
         let Some(proton) = self.protons.iter().find(|p| p.name == self.default_proton) else {
-            self.installing = None;
+            self.end_install();
             return self.set_status(fill(t.install_failed, &[&t.no_proton]));
         };
         let spec = plan.spec(&self.paths, *step, proton);
@@ -803,17 +872,13 @@ impl App {
             lock(&inbox).installs.push(result);
             wake();
         });
-        let message = if plan.steps[*step].is_fix { t.installing_fix } else { t.installing };
-        let message = fill(message, &[&plan.name]);
         let exe = plan.steps[*step].exe.display();
         self.log.line(format!("Installing {} into {}: {exe} with {}", plan.name, plan.dest.display(), proton.name));
         match launcher(&spec, on_exit) {
-            Ok(log) => {
-                self.log.line(format!("The installer's log: {}", log.display()));
-                self.set_progress(message)
-            }
+            // The progress toast shows from here until `end_install`.
+            Ok(log) => self.log.line(format!("The installer's log: {}", log.display())),
             Err(e) => {
-                self.installing = None;
+                self.end_install();
                 self.set_status(fill(t.install_failed, &[&e]));
             }
         }
@@ -823,23 +888,31 @@ impl App {
     fn install_step_done(&mut self, result: Result<(), String>) {
         let t = self.t();
         let Some((plan, step)) = self.installing.take() else { return };
+        let cancelled = self.install_cancelled;
         let exe = crate::scan::file_name(&plan.steps[step].exe);
         match &result {
+            _ if cancelled => self.log.line(format!("{exe} was cancelled")),
             Ok(()) => self.log.line(format!("{exe} finished")),
             Err(e) => self.log.line(format!("{exe} exited with {e}")),
         }
-        if let Err(e) = result.map_err(|e| format!("{exe}: {e}")).and_then(|()| plan.check(step)) {
+        // Killed, so it "failed", but that's what Cancel asked for.
+        let result = if cancelled { Err(String::new()) } else { result.map_err(|e| format!("{exe}: {e}")) };
+        if let Err(e) = result.and_then(|()| plan.check(step)) {
+            self.end_install();
+            let message =
+                if cancelled { fill(t.install_cancelled, &[&plan.name]) } else { fill(t.install_failed, &[&e]) };
             // What the game's installer left would stop the next try. A failed fix leaves the
             // game it was for alone.
             if !plan.steps[step].is_fix {
                 self.remove_partial(plan);
             }
-            return self.set_status(fill(t.install_failed, &[&e]));
+            return self.set_status(message);
         }
         if step + 1 < plan.steps.len() {
             self.installing = Some((plan, step + 1));
             return self.run_install_step();
         }
+        self.end_install();
         if let Some(library) = plan.dest.parent() {
             self.add_library(library.to_path_buf());
         }
@@ -928,14 +1001,10 @@ impl App {
         log.is_file().then_some(log)
     }
 
-    /// Shows a message in a toast that hides itself after a while.
+    /// Shows a message in a toast that hides itself after a while. While a game installs, it
+    /// sits above the install's progress, which stays.
     pub fn set_status(&mut self, text: impl Into<String>) {
         self.show_toast(text.into(), self.now + TOAST_SECS);
-    }
-
-    /// Shows a message that stays up until the next one replaces it.
-    pub fn set_progress(&mut self, text: impl Into<String>) {
-        self.show_toast(text.into(), f64::INFINITY);
     }
 
     fn show_toast(&mut self, text: String, until: f64) {
@@ -984,8 +1053,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// Toasts and a page's opening moment schedule their own end; `poll` runs then.
 fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let ends = [s.toast.as_ref().map_or(0.0, |t| t.until), s.opening_until];
-    // A progress toast never ends by itself.
-    if let Some(end) = ends.into_iter().filter(|&end| end > now && end.is_finite()).reduce(f64::min) {
+    if let Some(end) = ends.into_iter().filter(|&end| end > now).reduce(f64::min) {
         tx.wake_after(Duration::from_secs_f64(end - now));
     }
     s.poll(now, tx)

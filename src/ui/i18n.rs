@@ -177,6 +177,8 @@ macro_rules! strings {
             $($(#[$doc])* pub $field: &'static str,)*
             /// "12 games", in the search bar.
             pub games: fn(usize) -> String,
+            /// How much an install has written so far: "12.4 GB".
+            pub bytes: fn(u64) -> String,
         }
 
         impl Strings {
@@ -263,6 +265,10 @@ strings! {
     installing,
     /// {0}: the game, while its online fix's installer runs.
     installing_fix,
+    /// {0}: the game. Cancel was pressed while it installs, and its installer is stopping.
+    cancelling_install,
+    /// {0}: the game. Its install was cancelled.
+    install_cancelled,
     /// {0}: the game.
     installed,
     install_failed,
@@ -294,6 +300,20 @@ fn slavic(n: usize, one: &str, few: &str, many: &str) -> String {
 /// Polish has "one" only for 1 itself: 21 is "21 gier".
 fn polish(n: usize) -> String {
     if n == 1 { "1 gra".into() } else { slavic(n, "gier", "gry", "gier") }
+}
+
+/// A size in megabytes below a gigabyte and in gigabytes above, decimal ones as disks count
+/// them: "850 MB", "12.4 GB", with the language's decimal `point`.
+fn bytes(n: u64, point: char, mb: &str, gb: &str) -> String {
+    // Gigabytes from what would round to 1000 MB.
+    let (value, unit) = if n < 999_500_000 { (n as f64 / 1e6, mb) } else { (n as f64 / 1e9, gb) };
+    // One decimal while it's small enough to matter.
+    let shown = match value {
+        _ if n == 0 => "0".to_owned(),
+        v if v < 100.0 => format!("{v:.1}"),
+        v => format!("{v:.0}"),
+    };
+    format!("{} {unit}", shown.replace('.', &point.to_string()))
 }
 
 pub static EN: Strings = Strings {
@@ -359,6 +379,8 @@ pub static EN: Strings = Strings {
     install_fix_title: "Choose the game\u{2019}s online fix",
     installing: "Installing {0}\u{2026}",
     installing_fix: "Installing the online fix for {0}\u{2026}",
+    cancelling_install: "Cancelling the install of {0}\u{2026}",
+    install_cancelled: "Cancelled the install of {0}",
     installed: "Installed {0}",
     install_failed: "Install failed: {0}",
     already_installing: "Already installing {0}",
@@ -372,6 +394,7 @@ pub static EN: Strings = Strings {
     cancel: "Cancel",
     remove: "Remove",
     games: |n| if n == 1 { "1 game".into() } else { format!("{n} games") },
+    bytes: |n| bytes(n, '.', "MB", "GB"),
 };
 
 pub static RU: Strings = Strings {
@@ -437,6 +460,8 @@ pub static RU: Strings = Strings {
     install_fix_title: "Выберите онлайн-фикс игры",
     installing: "Устанавливаем {0}\u{2026}",
     installing_fix: "Устанавливаем онлайн-фикс для {0}\u{2026}",
+    cancelling_install: "Отменяем установку {0}\u{2026}",
+    install_cancelled: "Установка {0} отменена",
     installed: "{0} установлена",
     install_failed: "Не удалось установить: {0}",
     already_installing: "{0} уже устанавливается",
@@ -450,6 +475,7 @@ pub static RU: Strings = Strings {
     cancel: "Отмена",
     remove: "Убрать",
     games: |n| slavic(n, "игра", "игры", "игр"),
+    bytes: |n| bytes(n, ',', "МБ", "ГБ"),
 };
 
 pub static UK: Strings = Strings {
@@ -515,6 +541,8 @@ pub static UK: Strings = Strings {
     install_fix_title: "Виберіть онлайн-фікс гри",
     installing: "Встановлюємо {0}\u{2026}",
     installing_fix: "Встановлюємо онлайн-фікс для {0}\u{2026}",
+    cancelling_install: "Скасовуємо встановлення {0}\u{2026}",
+    install_cancelled: "Встановлення {0} скасовано",
     installed: "{0} встановлено",
     install_failed: "Не вдалося встановити: {0}",
     already_installing: "{0} вже встановлюється",
@@ -528,6 +556,7 @@ pub static UK: Strings = Strings {
     cancel: "Скасувати",
     remove: "Прибрати",
     games: |n| slavic(n, "гра", "гри", "ігор"),
+    bytes: |n| bytes(n, ',', "МБ", "ГБ"),
 };
 
 pub static DE: Strings = Strings {
@@ -593,6 +622,8 @@ pub static DE: Strings = Strings {
     install_fix_title: "Online-Fix des Spiels wählen",
     installing: "{0} wird installiert\u{2026}",
     installing_fix: "Online-Fix für {0} wird installiert\u{2026}",
+    cancelling_install: "Installation von {0} wird abgebrochen\u{2026}",
+    install_cancelled: "Installation von {0} abgebrochen",
     installed: "{0} installiert",
     install_failed: "Installation fehlgeschlagen: {0}",
     already_installing: "{0} wird bereits installiert",
@@ -606,6 +637,7 @@ pub static DE: Strings = Strings {
     cancel: "Abbrechen",
     remove: "Entfernen",
     games: |n| if n == 1 { "1 Spiel".into() } else { format!("{n} Spiele") },
+    bytes: |n| bytes(n, ',', "MB", "GB"),
 };
 
 pub static FR: Strings = Strings {
@@ -671,6 +703,8 @@ pub static FR: Strings = Strings {
     install_fix_title: "Choisir le fix en ligne du jeu",
     installing: "Installation de {0}\u{2026}",
     installing_fix: "Installation du fix en ligne de {0}\u{2026}",
+    cancelling_install: "Annulation de l\u{2019}installation de {0}\u{2026}",
+    install_cancelled: "Installation de {0} annulée",
     installed: "{0} installé",
     install_failed: "Échec de l\u{2019}installation : {0}",
     already_installing: "{0} est déjà en cours d\u{2019}installation",
@@ -684,6 +718,7 @@ pub static FR: Strings = Strings {
     cancel: "Annuler",
     remove: "Retirer",
     games: |n| if n <= 1 { format!("{n} jeu") } else { format!("{n} jeux") },
+    bytes: |n| bytes(n, ',', "Mo", "Go"),
 };
 
 pub static ES: Strings = Strings {
@@ -749,6 +784,8 @@ pub static ES: Strings = Strings {
     install_fix_title: "Elige el fix online del juego",
     installing: "Instalando {0}\u{2026}",
     installing_fix: "Instalando el fix online de {0}\u{2026}",
+    cancelling_install: "Cancelando la instalación de {0}\u{2026}",
+    install_cancelled: "Instalación de {0} cancelada",
     installed: "{0} instalado",
     install_failed: "Error al instalar: {0}",
     already_installing: "{0} ya se está instalando",
@@ -762,6 +799,7 @@ pub static ES: Strings = Strings {
     cancel: "Cancelar",
     remove: "Quitar",
     games: |n| if n == 1 { "1 juego".into() } else { format!("{n} juegos") },
+    bytes: |n| bytes(n, ',', "MB", "GB"),
 };
 
 pub static PT_BR: Strings = Strings {
@@ -827,6 +865,8 @@ pub static PT_BR: Strings = Strings {
     install_fix_title: "Escolha o fix online do jogo",
     installing: "Instalando {0}\u{2026}",
     installing_fix: "Instalando o fix online de {0}\u{2026}",
+    cancelling_install: "Cancelando a instalação de {0}\u{2026}",
+    install_cancelled: "Instalação de {0} cancelada",
     installed: "{0} instalado",
     install_failed: "Falha na instalação: {0}",
     already_installing: "{0} já está sendo instalado",
@@ -840,6 +880,7 @@ pub static PT_BR: Strings = Strings {
     cancel: "Cancelar",
     remove: "Remover",
     games: |n| if n == 1 { "1 jogo".into() } else { format!("{n} jogos") },
+    bytes: |n| bytes(n, ',', "MB", "GB"),
 };
 
 pub static PL: Strings = Strings {
@@ -905,6 +946,8 @@ pub static PL: Strings = Strings {
     install_fix_title: "Wybierz online fix gry",
     installing: "Instalowanie {0}\u{2026}",
     installing_fix: "Instalowanie online fixa do {0}\u{2026}",
+    cancelling_install: "Anulowanie instalacji {0}\u{2026}",
+    install_cancelled: "Anulowano instalację {0}",
     installed: "Zainstalowano {0}",
     install_failed: "Instalacja nie powiodła się: {0}",
     already_installing: "{0} już się instaluje",
@@ -918,6 +961,7 @@ pub static PL: Strings = Strings {
     cancel: "Anuluj",
     remove: "Usuń",
     games: polish,
+    bytes: |n| bytes(n, ',', "MB", "GB"),
 };
 
 pub static TR: Strings = Strings {
@@ -983,6 +1027,8 @@ pub static TR: Strings = Strings {
     install_fix_title: "Oyunun online fix\u{2019}ini seç",
     installing: "{0} yükleniyor\u{2026}",
     installing_fix: "{0} için online fix yükleniyor\u{2026}",
+    cancelling_install: "{0} kurulumu iptal ediliyor\u{2026}",
+    install_cancelled: "{0} kurulumu iptal edildi",
     installed: "{0} yüklendi",
     install_failed: "Yükleme başarısız: {0}",
     already_installing: "{0} zaten yükleniyor",
@@ -996,6 +1042,7 @@ pub static TR: Strings = Strings {
     cancel: "İptal",
     remove: "Kaldır",
     games: |n| format!("{n} oyun"),
+    bytes: |n| bytes(n, ',', "MB", "GB"),
 };
 
 pub static ZH_CN: Strings = Strings {
@@ -1061,6 +1108,8 @@ pub static ZH_CN: Strings = Strings {
     install_fix_title: "选择游戏的联机补丁",
     installing: "正在安装 {0}\u{2026}",
     installing_fix: "正在为 {0} 安装联机补丁\u{2026}",
+    cancelling_install: "正在取消安装 {0}\u{2026}",
+    install_cancelled: "已取消安装 {0}",
     installed: "已安装 {0}",
     install_failed: "安装失败：{0}",
     already_installing: "{0} 正在安装中",
@@ -1074,6 +1123,7 @@ pub static ZH_CN: Strings = Strings {
     cancel: "取消",
     remove: "移除",
     games: |n| format!("{n} 个游戏"),
+    bytes: |n| bytes(n, '.', "MB", "GB"),
 };
 
 pub static JA: Strings = Strings {
@@ -1139,6 +1189,8 @@ pub static JA: Strings = Strings {
     install_fix_title: "ゲームのオンライン修正を選択",
     installing: "{0} をインストールしています\u{2026}",
     installing_fix: "{0} のオンライン修正をインストールしています\u{2026}",
+    cancelling_install: "{0} のインストールをキャンセルしています\u{2026}",
+    install_cancelled: "{0} のインストールをキャンセルしました",
     installed: "{0} をインストールしました",
     install_failed: "インストールに失敗しました: {0}",
     already_installing: "{0} はすでにインストール中です",
@@ -1152,6 +1204,7 @@ pub static JA: Strings = Strings {
     cancel: "キャンセル",
     remove: "削除",
     games: |n| format!("{n} 本のゲーム"),
+    bytes: |n| bytes(n, '.', "MB", "GB"),
 };
 
 #[cfg(test)]
@@ -1230,6 +1283,15 @@ mod tests {
         assert_eq!(pl, ["0 gier", "1 gra", "2 gry", "5 gier", "12 gier", "21 gier", "22 gry"]);
         assert_eq!([1, 2].map(EN.games), ["1 game", "2 games"]);
         assert_eq!([0, 1, 2].map(FR.games), ["0 jeu", "1 jeu", "2 jeux"]);
+    }
+
+    #[test]
+    fn sizes() {
+        let en: Vec<_> = [0, 450_000, 12_340_000, 850_000_000, 999_999_999, 12_400_000_000, 123_456_000_000].map(EN.bytes).into();
+        assert_eq!(en, ["0 MB", "0.5 MB", "12.3 MB", "850 MB", "1.0 GB", "12.4 GB", "123 GB"]);
+        assert_eq!((RU.bytes)(12_400_000_000), "12,4 ГБ");
+        assert_eq!((FR.bytes)(1_500_000), "1,5 Mo");
+        assert_eq!((JA.bytes)(1_500_000), "1.5 MB");
     }
 
     fn detect(vars: &[(&str, &str)]) -> Lang {
