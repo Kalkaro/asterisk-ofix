@@ -2031,6 +2031,8 @@ fn a_failed_installer_stops_the_install() {
     assert_eq!(ui.toast(), "Install failed: setup.exe: exit status: 2");
     assert_eq!(fl.count(), 1);
     assert!(ui.rt.state.installing.is_none());
+    // No install starts until what the failed one left is removed, on another thread.
+    ui.wait_until("the cleanup", |s| s.removing.is_none());
 
     // One that exits cleanly having installed nothing fails too.
     let (setup, fix) = ui.downloads();
